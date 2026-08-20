@@ -4,6 +4,16 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 
+type GameInfo = {
+  id: string;
+  display_name: string;
+};
+
+type GamesState =
+  | { status: "loading" }
+  | { status: "ready"; games: GameInfo[]; selectedId: string }
+  | { status: "error"; message: string };
+
 type CaptureSuccess = {
   kind: "success";
   game_id: string;
@@ -70,9 +80,27 @@ function bridgeErrorDetails(error: unknown): {
   return { code: undefined, message: "The GameSage Python core could not be reached." };
 }
 
-async function requestCapture(): Promise<CaptureState> {
+async function requestGames(): Promise<GamesState> {
   try {
-    const response = await invoke<CaptureSuccess | GameError>("capture_game");
+    const response = await invoke<{ games: GameInfo[]; default_game: string }>(
+      "supported_games"
+    );
+    if (response.games.length === 0) {
+      return { status: "error", message: "No supported games are available." };
+    }
+    const selectedId = response.games.some((game) => game.id === response.default_game)
+      ? response.default_game
+      : response.games[0].id;
+    return { status: "ready", games: response.games, selectedId };
+  } catch (error) {
+    console.error("supported_games failed:", error);
+    return { status: "error", message: bridgeErrorDetails(error).message };
+  }
+}
+
+async function requestCapture(gameId: string): Promise<CaptureState> {
+  try {
+    const response = await invoke<CaptureSuccess | GameError>("capture_game", { gameId });
     if (response.kind === "success") {
       return { status: "success", result: response };
     }
@@ -86,12 +114,14 @@ async function requestCapture(): Promise<CaptureState> {
 
 async function requestAnalysis(
   image: string,
-  question: string
+  question: string,
+  gameId: string
 ): Promise<AskState> {
   try {
     const response = await invoke<AskSuccess | GameError>("analyze_game", {
       image,
       question,
+      gameId,
     });
     if (response.kind === "success") {
       return {
@@ -110,6 +140,14 @@ async function requestAnalysis(
 }
 
 function App() {
+  const [games, setGames] = useState<GamesState>({ status: "loading" });
+  const selectedGameId = games.status === "ready" ? games.selectedId : null;
+  // Mirrored for the global-shortcut handler, which must not go stale.
+  const selectedGameIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedGameIdRef.current = selectedGameId;
+  }, [selectedGameId]);
+
   const [state, setState] = useState<CaptureState>({ status: "idle" });
   const captureInFlight = useRef(false);
 
@@ -117,34 +155,45 @@ function App() {
   const [askState, setAskState] = useState<AskState>({ status: "idle" });
   const askInFlight = useRef(false);
 
-  const currentImage =
-    state.status === "success" ? state.result.screenshot_path : undefined;
+  // A capture belongs to the game that produced it; Ask always uses that id.
+  const capture = state.status === "success" ? state.result : undefined;
+  const currentImage = capture?.screenshot_path;
+  const capturedGameId = capture?.game_id;
   const canAsk =
     currentImage !== undefined && question.trim() !== "" && askState.status !== "asking";
 
-  // Single capture flow for both the button and the global shortcut:
-  // while a capture runs, further triggers are coalesced away.
+  // Single capture flow for the button and the global shortcut; while a
+  // capture runs, further triggers are coalesced away.
   async function handleCapture() {
     if (captureInFlight.current) {
+      return;
+    }
+    const gameId = selectedGameIdRef.current;
+    if (!gameId) {
+      setState({
+        status: "error",
+        code: undefined,
+        message: "No game is selected.",
+      });
       return;
     }
     captureInFlight.current = true;
     setState({ status: "capturing" });
     try {
-      setState(await requestCapture());
+      setState(await requestCapture(gameId));
     } finally {
       captureInFlight.current = false;
     }
   }
 
   async function handleAsk() {
-    if (!canAsk || askInFlight.current) {
+    if (!canAsk || askInFlight.current || !currentImage || !capturedGameId) {
       return;
     }
     askInFlight.current = true;
     setAskState({ status: "asking" });
     try {
-      setAskState(await requestAnalysis(currentImage as string, question.trim()));
+      setAskState(await requestAnalysis(currentImage, question.trim(), capturedGameId));
     } finally {
       askInFlight.current = false;
     }
@@ -161,23 +210,57 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    void requestGames().then(setGames);
+  }, []);
+
   // A new capture invalidates the previous question and answer.
   useEffect(() => {
     setQuestion("");
     setAskState({ status: "idle" });
-  }, [currentImage]);
+  }, [currentImage, capturedGameId]);
+
+  function selectGame(id: string) {
+    if (games.status === "ready") {
+      setGames({ ...games, selectedId: id });
+    }
+  }
 
   return (
     <main className="container">
       <header className="header">
         <h1>GameSage</h1>
-        <p className="subtitle">Current game: The Witcher 3: Wild Hunt</p>
+        {games.status === "loading" && (
+          <p className="subtitle">Loading supported games…</p>
+        )}
+        {games.status === "error" && (
+          <p className="error" role="alert">
+            {games.message}
+          </p>
+        )}
+        {games.status === "ready" &&
+          (games.games.length > 1 ? (
+            <select
+              className="game-select"
+              value={games.selectedId}
+              onChange={(event) => selectGame(event.currentTarget.value)}
+              aria-label="Selected game"
+            >
+              {games.games.map((game) => (
+                <option key={game.id} value={game.id}>
+                  {game.display_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="subtitle">Current game: {games.games[0].display_name}</p>
+          ))}
       </header>
 
       <button
         className="capture-button"
         onClick={() => void handleCapture()}
-        disabled={state.status === "capturing"}
+        disabled={state.status === "capturing" || selectedGameId === null}
       >
         {state.status === "capturing" ? "Capturing…" : "Capture Game"}
       </button>
@@ -188,7 +271,7 @@ function App() {
           <img
             className="screenshot"
             src={convertFileSrc(state.result.screenshot_path)}
-            alt={`Witcher 3 capture (${state.result.width}x${state.result.height})`}
+            alt={`Capture (${state.result.width}x${state.result.height})`}
           />
           <dl className="capture-details">
             <div>

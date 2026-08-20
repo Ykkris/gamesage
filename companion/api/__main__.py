@@ -2,8 +2,9 @@
 
 Usage:
 
-    python -m companion.api capture [--screenshots-dir PATH]
-    python -m companion.api analyze --image PATH --question TEXT
+    python -m companion.api games
+    python -m companion.api capture [--game ID] [--screenshots-dir PATH]
+    python -m companion.api analyze --image PATH --question TEXT [--game ID]
 
 Prints a single-line JSON envelope on stdout. Exit code is 0 on success and
 1 on failure; the envelope itself always carries the error details.
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from .analyze_json import run_analysis
 from .capture_json import run_capture
+from .games_json import run_games
 
 
 def load_env_file(path: Path, *, environ: dict[str, str] | None = None) -> int:
@@ -55,6 +57,7 @@ def main(
     *,
     run_capture_command: Callable[[Path | None, str | None], dict] = run_capture,
     run_analyze_command: Callable[[Path, str, str | None], dict] = run_analysis,
+    run_games_command: Callable[[], dict] = run_games,
 ) -> int:
     load_env_file(Path(".env"))
 
@@ -63,6 +66,10 @@ def main(
         description="Machine-readable GameSage core interface (desktop bridge).",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
+
+    games = subcommands.add_parser(
+        "games", help="list registered games; print a JSON envelope"
+    )
 
     capture = subcommands.add_parser(
         "capture", help="detect and capture the game window; print a JSON envelope"
@@ -91,7 +98,9 @@ def main(
     )
 
     args = parser.parse_args(argv)
-    if args.command == "capture":
+    if args.command == "games":
+        payload = run_games_command()
+    elif args.command == "capture":
         payload = run_capture_command(args.screenshots_dir, args.game)
     else:
         payload = run_analyze_command(args.image, args.question, args.game)

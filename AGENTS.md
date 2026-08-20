@@ -304,25 +304,25 @@ Do not optimize for high-frequency capture yet.
 
 # Game Adapters
 
-Each supported game should eventually expose game-specific information through a consistent interface.
+Each supported game exposes game-specific behavior through the established `GameAdapter` interface in:
 
-For example:
-
-```python
-class GameAdapter:
-    id: str
-    display_name: str
-
-    def detect(self):
-        ...
-
-    def get_window(self):
-        ...
+```text
+companion/games/base.py
 ```
 
-Do not treat this exact example as mandatory API design.
+with an explicit registry in:
 
-Use it as an architectural direction.
+```text
+companion/games/registry.py
+```
+
+The current contract (id, display name, window detection, capture naming, knowledge corpus) and the steps for adding a new game are documented in:
+
+```text
+docs/adding-a-game.md
+```
+
+Generic modules (`companion/capture/`, `companion/knowledge/`, `companion/vision/`, `companion/api/`) must not import concrete games; they resolve adapters through the registry.
 
 The first adapter is:
 

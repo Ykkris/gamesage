@@ -181,15 +181,24 @@ fn run_python(args: &[String]) -> Result<String, BridgeError> {
     Ok(stdout)
 }
 
-fn capture_args() -> Vec<String> {
-    ["-m", "companion.api", "capture"]
-        .iter()
-        .map(|arg| arg.to_string())
-        .collect()
+fn push_game_arg(args: &mut Vec<String>, game_id: Option<&str>) {
+    if let Some(id) = game_id {
+        args.push("--game".into());
+        args.push(id.to_string());
+    }
 }
 
-fn analyze_args(image: &str, question: &str) -> Vec<String> {
-    vec![
+fn capture_args(game_id: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = ["-m", "companion.api", "capture"]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect();
+    push_game_arg(&mut args, game_id);
+    args
+}
+
+fn analyze_args(image: &str, question: &str, game_id: Option<&str>) -> Vec<String> {
+    let mut args = vec![
         "-m".into(),
         "companion.api".into(),
         "analyze".into(),
@@ -197,17 +206,19 @@ fn analyze_args(image: &str, question: &str) -> Vec<String> {
         image.into(),
         "--question".into(),
         question.into(),
-    ]
+    ];
+    push_game_arg(&mut args, game_id);
+    args
 }
 
-fn capture_via_python() -> Result<CaptureResponse, BridgeError> {
-    let stdout = run_python(&capture_args())?;
+fn capture_via_python(game_id: Option<String>) -> Result<CaptureResponse, BridgeError> {
+    let stdout = run_python(&capture_args(game_id.as_deref()))?;
     parse_envelope(&stdout)
 }
 
 #[tauri::command]
-pub async fn capture_game() -> Result<CaptureResponse, BridgeError> {
-    tauri::async_runtime::spawn_blocking(capture_via_python)
+pub async fn capture_game(game_id: Option<String>) -> Result<CaptureResponse, BridgeError> {
+    tauri::async_runtime::spawn_blocking(move || capture_via_python(game_id))
         .await
         .map_err(|error| {
             BridgeError::new(
@@ -299,8 +310,12 @@ fn parse_game_error(value: &Value) -> Result<AnalyzeResponse, BridgeError> {
     })
 }
 
-fn analyze_via_python(image: String, question: String) -> Result<AnalyzeResponse, BridgeError> {
-    let stdout = run_python(&analyze_args(&image, &question))?;
+fn analyze_via_python(
+    image: String,
+    question: String,
+    game_id: Option<String>,
+) -> Result<AnalyzeResponse, BridgeError> {
+    let stdout = run_python(&analyze_args(&image, &question, game_id.as_deref()))?;
     parse_analyze_envelope(&stdout)
 }
 
@@ -308,13 +323,84 @@ fn analyze_via_python(image: String, question: String) -> Result<AnalyzeResponse
 pub async fn analyze_game(
     image: String,
     question: String,
+    game_id: Option<String>,
 ) -> Result<AnalyzeResponse, BridgeError> {
-    tauri::async_runtime::spawn_blocking(move || analyze_via_python(image, question))
+    tauri::async_runtime::spawn_blocking(move || analyze_via_python(image, question, game_id))
         .await
         .map_err(|error| {
             BridgeError::new(
                 "backend_task_failed",
                 format!("The analysis task could not be completed: {error}."),
+            )
+        })?
+}
+
+/// Metadata for one registered game.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GameInfo {
+    pub id: String,
+    pub display_name: String,
+}
+
+/// Supported games from the Python registry (the Rust layer holds no game list).
+#[derive(Debug, Clone, Serialize)]
+pub struct GamesResponse {
+    pub games: Vec<GameInfo>,
+    pub default_game: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GamesPayload {
+    games: Vec<GameInfo>,
+    default_game: String,
+}
+
+/// Parse the JSON envelope printed by `python -m companion.api games`.
+pub fn parse_games_envelope(stdout: &str) -> Result<GamesResponse, BridgeError> {
+    let value: Value = serde_json::from_str(stdout.trim()).map_err(|error| {
+        BridgeError::new(
+            "invalid_backend_response",
+            format!("The GameSage core returned invalid JSON: {error}."),
+        )
+    })?;
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(BridgeError::new(
+            "invalid_backend_response",
+            "The GameSage core games response was malformed.".to_string(),
+        ));
+    }
+    let payload: GamesPayload = serde_json::from_value(value).map_err(|error| {
+        BridgeError::new(
+            "invalid_backend_response",
+            format!("The GameSage core games response was malformed: {error}."),
+        )
+    })?;
+    Ok(GamesResponse {
+        games: payload.games,
+        default_game: payload.default_game,
+    })
+}
+
+fn games_args() -> Vec<String> {
+    ["-m", "companion.api", "games"]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect()
+}
+
+fn games_via_python() -> Result<GamesResponse, BridgeError> {
+    let stdout = run_python(&games_args())?;
+    parse_games_envelope(&stdout)
+}
+
+#[tauri::command]
+pub async fn supported_games() -> Result<GamesResponse, BridgeError> {
+    tauri::async_runtime::spawn_blocking(games_via_python)
+        .await
+        .map_err(|error| {
+            BridgeError::new(
+                "backend_task_failed",
+                format!("The supported-games task could not be completed: {error}."),
             )
         })?
 }
@@ -478,10 +564,11 @@ mod tests {
     }
 
     #[test]
-    fn analyze_args_pass_image_and_question_safely() {
+    fn analyze_args_pass_image_question_and_game_safely() {
         let args = analyze_args(
             r"D:\shots\witcher 3.png",
             "What quest is this? (spoiler-free)",
+            Some("witcher3"),
         );
         assert_eq!(
             args,
@@ -493,7 +580,72 @@ mod tests {
                 r"D:\shots\witcher 3.png".to_string(),
                 "--question".to_string(),
                 "What quest is this? (spoiler-free)".to_string(),
+                "--game".to_string(),
+                "witcher3".to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn capture_args_default_to_no_game_flag() {
+        assert_eq!(
+            capture_args(None),
+            vec!["-m", "companion.api", "capture"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn capture_args_pass_explicit_game() {
+        assert_eq!(
+            capture_args(Some("witcher3")),
+            vec![
+                "-m".to_string(),
+                "companion.api".to_string(),
+                "capture".to_string(),
+                "--game".to_string(),
+                "witcher3".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn analyze_args_without_game_omit_flag() {
+        let args = analyze_args("x.png", "q", None);
+        assert!(!args.contains(&"--game".to_string()));
+    }
+
+    #[test]
+    fn parses_games_envelope() {
+        let stdout = r#"{"ok": true, "games": [{"id": "witcher3", "display_name": "The Witcher 3: Wild Hunt"}], "default_game": "witcher3"}"#;
+        let response = parse_games_envelope(stdout).expect("valid envelope");
+        assert_eq!(response.default_game, "witcher3");
+        assert_eq!(
+            response.games,
+            vec![GameInfo {
+                id: "witcher3".to_string(),
+                display_name: "The Witcher 3: Wild Hunt".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn games_envelope_rejects_invalid_payloads() {
+        assert_eq!(
+            parse_games_envelope("not json").unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_games_envelope(r#"{"ok": false}"#).unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_games_envelope(r#"{"ok": true, "games": []}"#)
+                .unwrap_err()
+                .code,
+            "invalid_backend_response"
         );
     }
 }
