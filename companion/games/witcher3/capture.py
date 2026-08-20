@@ -6,6 +6,9 @@ detect the visible Witcher 3 window, then capture exactly its bounds.
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+
 from companion.capture.window_capture import (
     CaptureResult,
     MinimizedCheck,
@@ -18,6 +21,18 @@ from companion.capture.window_detection import (
 )
 
 from .detection import detect_window
+
+#: Default directory for saved screenshots (relative to the working directory).
+SCREENSHOTS_DIR = Path("screenshots")
+
+
+def save_capture(
+    result: CaptureResult, directory: Path = SCREENSHOTS_DIR
+) -> Path:
+    """Save a capture as ``witcher3-<timestamp>.png`` under ``directory``."""
+    directory.mkdir(exist_ok=True)
+    path = directory / f"witcher3-{datetime.now():%Y%m%d-%H%M%S-%f}.png"
+    return result.save(path)
 
 
 def capture_game_window(
