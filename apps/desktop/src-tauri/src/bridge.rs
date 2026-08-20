@@ -134,13 +134,11 @@ pub fn parse_envelope(stdout: &str) -> Result<CaptureResponse, BridgeError> {
     }
 }
 
-/// Spawn the Python core CLI and return its stdout.
-fn run_python_capture() -> Result<String, BridgeError> {
+/// Spawn the Python core CLI with ``args`` and return its stdout.
+fn run_python(args: &[String]) -> Result<String, BridgeError> {
     let python = python_executable();
     let mut command = Command::new(&python);
-    command
-        .args(["-m", "companion.api", "capture"])
-        .current_dir(backend_working_dir());
+    command.args(args).current_dir(backend_working_dir());
     // Avoid flashing a console window alongside the GUI app.
     #[cfg(windows)]
     {
@@ -163,7 +161,7 @@ fn run_python_capture() -> Result<String, BridgeError> {
     let stderr = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
     if !stderr.is_empty() {
         // Diagnostic details for the development console only; never shown
-        // as the user-facing error (e.g. ModuleNotFoundError output).
+        // as the user-facing error (e.g. provider or module errors).
         eprintln!("gamesage core stderr: {stderr}");
     }
     if stdout.trim().is_empty() {
@@ -183,8 +181,27 @@ fn run_python_capture() -> Result<String, BridgeError> {
     Ok(stdout)
 }
 
+fn capture_args() -> Vec<String> {
+    ["-m", "companion.api", "capture"]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect()
+}
+
+fn analyze_args(image: &str, question: &str) -> Vec<String> {
+    vec![
+        "-m".into(),
+        "companion.api".into(),
+        "analyze".into(),
+        "--image".into(),
+        image.into(),
+        "--question".into(),
+        question.into(),
+    ]
+}
+
 fn capture_via_python() -> Result<CaptureResponse, BridgeError> {
-    let stdout = run_python_capture()?;
+    let stdout = run_python(&capture_args())?;
     parse_envelope(&stdout)
 }
 
@@ -196,6 +213,95 @@ pub async fn capture_game() -> Result<CaptureResponse, BridgeError> {
             BridgeError::new(
                 "backend_task_failed",
                 format!("The capture task could not be completed: {error}."),
+            )
+        })?
+}
+
+/// Result of one analysis request, ready for the frontend.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AnalyzeResponse {
+    Success {
+        answer: String,
+        provider: String,
+        model: String,
+    },
+    GameError {
+        code: String,
+        message: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct AnalyzeSuccessPayload {
+    answer: String,
+    provider: String,
+    model: String,
+}
+
+/// Parse the JSON envelope printed by `python -m companion.api analyze`.
+pub fn parse_analyze_envelope(stdout: &str) -> Result<AnalyzeResponse, BridgeError> {
+    let value: Value = serde_json::from_str(stdout.trim()).map_err(|error| {
+        BridgeError::new(
+            "invalid_backend_response",
+            format!("The GameSage core returned invalid JSON: {error}."),
+        )
+    })?;
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => {
+            let payload: AnalyzeSuccessPayload = serde_json::from_value(value).map_err(|error| {
+                BridgeError::new(
+                    "invalid_backend_response",
+                    format!("The GameSage core returned an unexpected response: {error}."),
+                )
+            })?;
+            Ok(AnalyzeResponse::Success {
+                answer: payload.answer,
+                provider: payload.provider,
+                model: payload.model,
+            })
+        }
+        Some(false) => parse_game_error(&value),
+        None => Err(BridgeError::new(
+            "invalid_backend_response",
+            "The GameSage core response is missing the 'ok' field.".to_string(),
+        )),
+    }
+}
+
+fn parse_game_error(value: &Value) -> Result<AnalyzeResponse, BridgeError> {
+    let error_value = value.get("error").cloned().unwrap_or(Value::Null);
+    let error = match serde_json::from_value::<ErrorPayload>(error_value) {
+        Ok(payload) => payload,
+        Err(error) => {
+            return Err(BridgeError::new(
+                "invalid_backend_response",
+                format!("The GameSage core error response was malformed: {error}."),
+            ))
+        }
+    };
+    Ok(AnalyzeResponse::GameError {
+        code: error.code,
+        message: error.message,
+    })
+}
+
+fn analyze_via_python(image: String, question: String) -> Result<AnalyzeResponse, BridgeError> {
+    let stdout = run_python(&analyze_args(&image, &question))?;
+    parse_analyze_envelope(&stdout)
+}
+
+#[tauri::command]
+pub async fn analyze_game(
+    image: String,
+    question: String,
+) -> Result<AnalyzeResponse, BridgeError> {
+    tauri::async_runtime::spawn_blocking(move || analyze_via_python(image, question))
+        .await
+        .map_err(|error| {
+            BridgeError::new(
+                "backend_task_failed",
+                format!("The analysis task could not be completed: {error}."),
             )
         })?
 }
@@ -292,5 +398,72 @@ mod tests {
         std::env::set_var("GAMESAGE_PYTHON", r"C:\custom\python.exe");
         assert_eq!(python_executable(), PathBuf::from(r"C:\custom\python.exe"));
         std::env::remove_var("GAMESAGE_PYTHON");
+    }
+
+    #[test]
+    fn parses_analyze_success_envelope() {
+        let stdout = r#"{"ok": true, "answer": "You are near Oxenfurt.", "provider": "zai", "model": "glm-4.5v"}"#;
+        match parse_analyze_envelope(stdout) {
+            Ok(AnalyzeResponse::Success {
+                answer,
+                provider,
+                model,
+            }) => {
+                assert_eq!(answer, "You are near Oxenfurt.");
+                assert_eq!(provider, "zai");
+                assert_eq!(model, "glm-4.5v");
+            }
+            other => panic!("expected analyze success, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_analyze_game_error_envelope() {
+        let stdout = r#"{"ok": false, "error": {"code": "provider_not_configured", "message": "Z.AI API key is not configured."}}"#;
+        match parse_analyze_envelope(stdout) {
+            Ok(AnalyzeResponse::GameError { code, message }) => {
+                assert_eq!(code, "provider_not_configured");
+                assert!(message.contains("API key"));
+            }
+            other => panic!("expected analyze game error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn analyze_rejects_invalid_json_and_missing_fields() {
+        assert_eq!(
+            parse_analyze_envelope("not json").unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_analyze_envelope(r#"{"answer": "x"}"#).unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_analyze_envelope(r#"{"ok": true, "answer": "x"}"#)
+                .unwrap_err()
+                .code,
+            "invalid_backend_response"
+        );
+    }
+
+    #[test]
+    fn analyze_args_pass_image_and_question_safely() {
+        let args = analyze_args(
+            r"D:\shots\witcher 3.png",
+            "What quest is this? (spoiler-free)",
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-m".to_string(),
+                "companion.api".to_string(),
+                "analyze".to_string(),
+                "--image".to_string(),
+                r"D:\shots\witcher 3.png".to_string(),
+                "--question".to_string(),
+                "What quest is this? (spoiler-free)".to_string(),
+            ]
+        );
     }
 }

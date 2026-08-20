@@ -123,7 +123,9 @@ class TestCliMain:
         def fake_run(directory):
             return {"ok": True, "screenshot_path": str(directory)}
 
-        exit_code = main(["capture", "--screenshots-dir", str(tmp_path)], run=fake_run)
+        exit_code = main(
+            ["capture", "--screenshots-dir", str(tmp_path)], run_capture_command=fake_run
+        )
 
         assert exit_code == 0
         lines = capsys.readouterr().out.strip().splitlines()
@@ -134,7 +136,7 @@ class TestCliMain:
         def failing_run(directory):
             return {"ok": False, "error": {"code": "game_not_running", "message": "m"}}
 
-        exit_code = main(["capture"], run=failing_run)
+        exit_code = main(["capture"], run_capture_command=failing_run)
 
         assert exit_code == 1
         assert json.loads(capsys.readouterr().out)["ok"] is False

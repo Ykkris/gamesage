@@ -24,6 +24,19 @@ type CaptureState =
   | { status: "success"; result: CaptureSuccess }
   | { status: "error"; code: string | undefined; message: string };
 
+type AskSuccess = {
+  kind: "success";
+  answer: string;
+  provider: string;
+  model: string;
+};
+
+type AskState =
+  | { status: "idle" }
+  | { status: "asking" }
+  | { status: "answered"; answer: string; provider: string; model: string }
+  | { status: "error"; message: string };
+
 /** Emitted by the Rust layer when the global Ctrl+F8 shortcut is pressed. */
 const CAPTURE_REQUESTED_EVENT = "capture-requested";
 
@@ -57,9 +70,42 @@ async function requestCapture(): Promise<CaptureState> {
   }
 }
 
+async function requestAnalysis(
+  image: string,
+  question: string
+): Promise<AskState> {
+  try {
+    const response = await invoke<AskSuccess | GameError>("analyze_game", {
+      image,
+      question,
+    });
+    if (response.kind === "success") {
+      return {
+        status: "answered",
+        answer: response.answer,
+        provider: response.provider,
+        model: response.model,
+      };
+    }
+    return { status: "error", message: response.message };
+  } catch (error) {
+    console.error("analyze_game failed:", error);
+    return { status: "error", message: bridgeErrorDetails(error).message };
+  }
+}
+
 function App() {
   const [state, setState] = useState<CaptureState>({ status: "idle" });
   const captureInFlight = useRef(false);
+
+  const [question, setQuestion] = useState("");
+  const [askState, setAskState] = useState<AskState>({ status: "idle" });
+  const askInFlight = useRef(false);
+
+  const currentImage =
+    state.status === "success" ? state.result.screenshot_path : undefined;
+  const canAsk =
+    currentImage !== undefined && question.trim() !== "" && askState.status !== "asking";
 
   // Single capture flow for both the button and the global shortcut:
   // while a capture runs, further triggers are coalesced away.
@@ -76,6 +122,19 @@ function App() {
     }
   }
 
+  async function handleAsk() {
+    if (!canAsk || askInFlight.current) {
+      return;
+    }
+    askInFlight.current = true;
+    setAskState({ status: "asking" });
+    try {
+      setAskState(await requestAnalysis(currentImage as string, question.trim()));
+    } finally {
+      askInFlight.current = false;
+    }
+  }
+
   useEffect(() => {
     const subscription = listen(CAPTURE_REQUESTED_EVENT, () => {
       void handleCapture();
@@ -86,6 +145,12 @@ function App() {
     // handleCapture only touches stable state (setState, ref) — mount once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A new capture invalidates the previous question and answer.
+  useEffect(() => {
+    setQuestion("");
+    setAskState({ status: "idle" });
+  }, [currentImage]);
 
   return (
     <main className="container">
@@ -130,6 +195,43 @@ function App() {
           {state.message}
         </p>
       )}
+
+      <section className="ask-section">
+        <form
+          className="ask-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleAsk();
+          }}
+        >
+          <input
+            className="question-input"
+            value={question}
+            onChange={(event) => setQuestion(event.currentTarget.value)}
+            placeholder="Ask about this screenshot…"
+            disabled={currentImage === undefined}
+            aria-label="Question about the screenshot"
+          />
+          <button type="submit" disabled={!canAsk}>
+            {askState.status === "asking" ? "Asking…" : "Ask GameSage"}
+          </button>
+        </form>
+
+        {askState.status === "answered" && (
+          <div className="answer">
+            <p className="answer-text">{askState.answer}</p>
+            <p className="answer-meta">
+              answered by {askState.provider} · {askState.model}
+            </p>
+          </div>
+        )}
+
+        {askState.status === "error" && (
+          <p className="error" role="alert">
+            {askState.message}
+          </p>
+        )}
+      </section>
     </main>
   );
 }

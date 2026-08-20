@@ -41,7 +41,10 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![bridge::capture_game])
+        .invoke_handler(tauri::generate_handler![
+            bridge::capture_game,
+            bridge::analyze_game
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
