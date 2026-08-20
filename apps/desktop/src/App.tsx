@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 
 type CaptureSuccess = {
@@ -22,6 +23,9 @@ type CaptureState =
   | { status: "capturing" }
   | { status: "success"; result: CaptureSuccess }
   | { status: "error"; code: string | undefined; message: string };
+
+/** Emitted by the Rust layer when the global Ctrl+F8 shortcut is pressed. */
+const CAPTURE_REQUESTED_EVENT = "capture-requested";
 
 function bridgeErrorDetails(error: unknown): {
   code: string | undefined;
@@ -55,11 +59,33 @@ async function requestCapture(): Promise<CaptureState> {
 
 function App() {
   const [state, setState] = useState<CaptureState>({ status: "idle" });
+  const captureInFlight = useRef(false);
 
+  // Single capture flow for both the button and the global shortcut:
+  // while a capture runs, further triggers are coalesced away.
   async function handleCapture() {
+    if (captureInFlight.current) {
+      return;
+    }
+    captureInFlight.current = true;
     setState({ status: "capturing" });
-    setState(await requestCapture());
+    try {
+      setState(await requestCapture());
+    } finally {
+      captureInFlight.current = false;
+    }
   }
+
+  useEffect(() => {
+    const subscription = listen(CAPTURE_REQUESTED_EVENT, () => {
+      void handleCapture();
+    });
+    return () => {
+      void subscription.then((unlisten) => unlisten());
+    };
+    // handleCapture only touches stable state (setState, ref) — mount once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="container">
@@ -70,11 +96,12 @@ function App() {
 
       <button
         className="capture-button"
-        onClick={handleCapture}
+        onClick={() => void handleCapture()}
         disabled={state.status === "capturing"}
       >
         {state.status === "capturing" ? "Capturing…" : "Capture Game"}
       </button>
+      <p className="shortcut-hint">or press Ctrl+F8 while playing</p>
 
       {state.status === "success" && (
         <section className="capture-result">

@@ -47,6 +47,12 @@ body {
   opacity: 0.6;
 }
 
+.shortcut-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  opacity: 0.65;
+}
+
 .capture-result {
   margin-top: 1.5rem;
 }
