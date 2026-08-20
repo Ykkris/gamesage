@@ -27,11 +27,17 @@ SCREENSHOTS_DIR = Path("screenshots")
 
 
 def save_capture(
-    result: CaptureResult, directory: Path = SCREENSHOTS_DIR
+    result: CaptureResult, directory: Path | None = None
 ) -> Path:
     """Save a capture as ``witcher3-<timestamp>.png`` under ``directory``."""
-    directory.mkdir(exist_ok=True)
-    path = directory / f"witcher3-{datetime.now():%Y%m%d-%H%M%S-%f}.png"
+    target_dir = directory if directory is not None else SCREENSHOTS_DIR
+    target_dir.mkdir(exist_ok=True)
+    stem = f"witcher3-{datetime.now():%Y%m%d-%H%M%S-%f}"
+    path = target_dir / f"{stem}.png"
+    suffix = 1
+    while path.exists():
+        path = target_dir / f"{stem}-{suffix}.png"
+        suffix += 1
     return result.save(path)
 
 

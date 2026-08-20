@@ -12,13 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "desktop",
+        "title": "GameSage",
         "width": 800,
         "height": 600
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**/screenshots/**"]
+      }
     }
   },
   "bundle": {
