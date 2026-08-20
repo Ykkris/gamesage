@@ -172,6 +172,11 @@ def list_visible_windows() -> list[WindowInfo]:
     return windows
 
 
+def is_minimized(hwnd: int) -> bool:
+    """Whether the window is currently minimized."""
+    return bool(_user32.IsIconic(hwnd))
+
+
 def _window_rect(hwnd: int) -> Rect:
     """Window bounds in physical pixels, preferring the DWM frame bounds.
 

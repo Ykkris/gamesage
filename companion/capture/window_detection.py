@@ -70,6 +70,7 @@ class GameWindow:
     hwnd: int
     title: str
     rect: Rect
+    minimized: bool
 
 
 class WindowDetectionError(Exception):
@@ -153,4 +154,5 @@ def find_game_window(
         hwnd=best.hwnd,
         title=best.title,
         rect=best.rect,
+        minimized=best.minimized,
     )
