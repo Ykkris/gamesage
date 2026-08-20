@@ -11,7 +11,7 @@ extensions.
 from __future__ import annotations
 
 import base64
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,7 +25,11 @@ from companion.vision.errors import (
 )
 from companion.vision.http import UrllibTransport
 from companion.vision.models import AnalysisResult
-from companion.vision.provider import SYSTEM_PROMPT, HttpTransport
+from companion.vision.provider import (
+    KNOWLEDGE_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    HttpTransport,
+)
 
 DEFAULT_TIMEOUT_SECONDS = 60.0
 
@@ -74,7 +78,12 @@ class ChatCompletionsProvider:
         return self._config
 
     def analyze(
-        self, image_path: Path, question: str, *, context: str | None = None
+        self,
+        image_path: Path,
+        question: str,
+        *,
+        context: str | None = None,
+        knowledge: Sequence[str] | None = None,
     ) -> AnalysisResult:
         image_data_url = load_image_data_url(image_path)
         payload = build_multimodal_payload(
@@ -83,6 +92,7 @@ class ChatCompletionsProvider:
             image_data_url,
             context,
             payload_extensions=self._config.payload_extensions,
+            knowledge=knowledge,
         )
         status, body = self._request(payload)
         answer = extract_answer(status, body, label=self._config.error_label)
@@ -124,24 +134,36 @@ def build_multimodal_payload(
     context: str | None,
     *,
     payload_extensions: Mapping[str, object] | None = None,
+    knowledge: Sequence[str] | None = None,
 ) -> dict[str, object]:
-    """Build the image + text chat-completions payload."""
+    """Build the image + text chat-completions payload.
+
+    When ``knowledge`` passages are given, they ride in a second system
+    message carrying the screenshot-precedence instructions.
+    """
     system_content = SYSTEM_PROMPT
     if context:
         system_content += f"\nGame context: {context}."
-    payload: dict[str, object] = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_content},
+    messages: list[dict[str, object]] = [{"role": "system", "content": system_content}]
+    if knowledge:
+        messages.append(
             {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": image_data_url}},
-                    {"type": "text", "text": question},
-                ],
-            },
-        ],
-    }
+                "role": "system",
+                "content": KNOWLEDGE_SYSTEM_PROMPT
+                + "\n\nRetrieved game knowledge:\n\n"
+                + "\n\n".join(knowledge),
+            }
+        )
+    messages.append(
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": image_data_url}},
+                {"type": "text", "text": question},
+            ],
+        }
+    )
+    payload: dict[str, object] = {"model": model, "messages": messages}
     if payload_extensions:
         payload.update(payload_extensions)
     return payload

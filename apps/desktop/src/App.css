@@ -133,3 +133,33 @@ body {
   font-size: 0.8rem;
   opacity: 0.65;
 }
+
+.sources {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+}
+
+.sources-heading {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.sources ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.sources li {
+  margin: 0.15rem 0;
+}
+
+.source-link {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0 0.4rem;
+  cursor: pointer;
+}

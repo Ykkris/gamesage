@@ -8,7 +8,7 @@ concrete provider.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
@@ -27,6 +27,19 @@ SYSTEM_PROMPT = (
     "Keep the answer concise."
 )
 
+#: Additional instructions used when retrieved knowledge accompanies a request.
+KNOWLEDGE_SYSTEM_PROMPT = (
+    "Additional game knowledge retrieved for this question is provided "
+    "below as numbered reference passages.\n"
+    "Information visible in the screenshot takes precedence over retrieved "
+    "knowledge.\n"
+    "Clearly distinguish what is visible in the screenshot from what comes "
+    "from the retrieved game knowledge.\n"
+    "If the retrieved knowledge does not contain the needed information "
+    "(for example quest consequences), say that the available knowledge is "
+    "insufficient instead of guessing."
+)
+
 
 class VisionProvider(Protocol):
     """A provider that can answer questions about a screenshot image."""
@@ -34,11 +47,18 @@ class VisionProvider(Protocol):
     id: str
 
     def analyze(
-        self, image_path: Path, question: str, *, context: str | None = None
+        self,
+        image_path: Path,
+        question: str,
+        *,
+        context: str | None = None,
+        knowledge: Sequence[str] | None = None,
     ) -> AnalysisResult:
         """Answer ``question`` about the image at ``image_path``.
 
         ``context`` optionally names the game shown in the screenshot.
+        ``knowledge`` optionally holds pre-formatted reference passages to
+        ground the answer in retrieved game knowledge.
         """
         ...
 

@@ -1,19 +1,31 @@
 """Machine-readable JSON interface for screenshot question analysis.
 
-Companion to :mod:`companion.api.capture_json`: runs the configured vision
-provider against a saved screenshot and returns a JSON envelope for the
-desktop bridge. The game context is wired here (v0.1 composition root,
-single supported game).
+Companion to :mod:`companion.api.capture_json`. The pipeline has two vision
+stages plus local knowledge retrieval:
+
+1. context extraction — a fixed internal question asks the provider to list
+   what is visible in the screenshot (location/character/quest names, UI);
+2. retrieval — the user question plus a capped slice of that visual context
+   form the retrieval query over the local Witcher 3 corpus;
+3. grounded answer — the user question is answered with the screenshot and
+   the retrieved passages, which the provider must distinguish from visible
+   information.
+
+The game context and corpus are wired here (v0.1 composition root, single
+supported game).
 """
 
 from __future__ import annotations
 
 import sys
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from companion.games.witcher3.detection import GAME_NAME
+from companion.games.witcher3.knowledge.sources import load_corpus as load_witcher3_corpus
+from companion.knowledge.models import KnowledgeChunk
+from companion.knowledge.retrieval import RetrievalHit, has_any_term, retrieve, tokenize
 from companion.vision.errors import (
     InvalidImageError,
     ProviderAuthError,
@@ -29,6 +41,21 @@ from companion.vision.models import AnalysisResult
 from companion.vision.provider import VisionProvider
 
 ProviderFactory = Callable[[], VisionProvider]
+KnowledgeRetriever = Callable[[str], Sequence[RetrievalHit]]
+
+#: Fixed internal question for the visual-context extraction stage.
+CONTEXT_EXTRACTION_QUESTION = (
+    "List concisely what is visible in this screenshot: location names, "
+    "character names, quest or objective names, item names, and notable UI "
+    "text. Plain list only, no commentary."
+)
+
+#: How much of the raw vision context feeds the retrieval query; the rest is
+#: dropped to avoid turning the whole first answer into the query.
+MAX_VISUAL_CONTEXT_CHARS = 400
+
+#: Retrieved passages included in the final prompt.
+KNOWLEDGE_LIMIT = 3
 
 #: Known vision error types mapped to stable machine-readable codes.
 _ERROR_CODES: tuple[tuple[type[Exception], str], ...] = (
@@ -49,16 +76,54 @@ def error_code(error: Exception) -> str:
     return "internal_error"
 
 
+def build_retrieval_query(
+    question: str,
+    visual_context: str,
+    *,
+    max_context_chars: int = MAX_VISUAL_CONTEXT_CHARS,
+) -> str:
+    """Combine the user question with a capped slice of visual context."""
+    trimmed = visual_context.strip()[:max_context_chars]
+    if not trimmed:
+        return question.strip()
+    return f"{question.strip()}\n{trimmed}"
+
+
+def format_knowledge_passages(hits: Sequence[RetrievalHit]) -> list[str]:
+    """Format retrieved chunks as numbered, attributed reference passages."""
+    return [
+        f"[{index}] {hit.chunk.title} ({hit.chunk.source})\n{hit.chunk.text.strip()}"
+        for index, hit in enumerate(hits, start=1)
+    ]
+
+
+def default_knowledge_retriever(query: str) -> list[RetrievalHit]:
+    """Retrieve from the bundled Witcher 3 corpus (cached, deterministic)."""
+    chunks = load_witcher3_corpus()
+    if not chunks:
+        return []
+    return retrieve(query, chunks, limit=KNOWLEDGE_LIMIT)
+
+
+def _source_entries(hits: Sequence[RetrievalHit]) -> list[dict[str, str]]:
+    return [
+        {"title": hit.chunk.title, "source": hit.chunk.source, "url": hit.chunk.url}
+        for hit in hits
+    ]
+
+
 def run_analysis(
     image_path: Path,
     question: str,
     *,
     provider_factory: ProviderFactory = create_provider,
     context: str | None = GAME_NAME,
+    knowledge_retriever: KnowledgeRetriever | None = default_knowledge_retriever,
 ) -> dict:
-    """Answer ``question`` about the screenshot at ``image_path``.
+    """Answer ``question`` about the screenshot, grounded in local knowledge.
 
-    Returns ``{"ok": True, "answer", "provider", "model"}`` or
+    Returns ``{"ok": True, "answer", "provider", "model"}`` plus
+    ``"sources"`` when retrieved knowledge was used, or
     ``{"ok": False, "error": {"code", "message"}}``. Unexpected exceptions
     are reported generically (details go to stderr), so raw stack traces
     never reach the desktop UI.
@@ -70,7 +135,25 @@ def run_analysis(
         }
     try:
         provider = provider_factory()
-        result: AnalysisResult = provider.analyze(image_path, question, context=context)
+        visual_context = provider.analyze(
+            image_path, CONTEXT_EXTRACTION_QUESTION, context=context
+        ).answer
+        retrieved: Sequence[RetrievalHit] = (
+            knowledge_retriever(build_retrieval_query(question, visual_context))
+            if knowledge_retriever is not None
+            else []
+        )
+        # Question-anchor rule: retrieved knowledge must share at least one
+        # term with the user's question. Scene context alone cannot qualify
+        # a source, so off-topic questions produce no Sources section even
+        # when the visual context matches corpus entries strongly.
+        question_terms = tokenize(question)
+        if question_terms:
+            retrieved = [hit for hit in retrieved if has_any_term(hit.chunk, question_terms)]
+        knowledge = format_knowledge_passages(retrieved) or None
+        result: AnalysisResult = provider.analyze(
+            image_path, question, context=context, knowledge=knowledge
+        )
     except VisionError as error:
         return {
             "ok": False,
@@ -86,9 +169,17 @@ def run_analysis(
             },
         }
 
-    return {
+    payload: dict[str, object] = {
         "ok": True,
         "answer": result.answer,
         "provider": result.provider,
         "model": result.model,
     }
+    if knowledge:
+        payload["sources"] = _source_entries(retrieved)
+    return payload
+
+
+def knowledge_chunks() -> tuple[KnowledgeChunk, ...]:
+    """The loaded Witcher 3 corpus (convenience for diagnostics/tests)."""
+    return load_witcher3_corpus()

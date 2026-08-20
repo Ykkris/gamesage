@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 
 type CaptureSuccess = {
@@ -24,17 +25,30 @@ type CaptureState =
   | { status: "success"; result: CaptureSuccess }
   | { status: "error"; code: string | undefined; message: string };
 
+type KnowledgeSource = {
+  title: string;
+  source: string;
+  url: string;
+};
+
 type AskSuccess = {
   kind: "success";
   answer: string;
   provider: string;
   model: string;
+  sources?: KnowledgeSource[];
 };
 
 type AskState =
   | { status: "idle" }
   | { status: "asking" }
-  | { status: "answered"; answer: string; provider: string; model: string }
+  | {
+      status: "answered";
+      answer: string;
+      provider: string;
+      model: string;
+      sources: KnowledgeSource[];
+    }
   | { status: "error"; message: string };
 
 /** Emitted by the Rust layer when the global Ctrl+F8 shortcut is pressed. */
@@ -85,6 +99,7 @@ async function requestAnalysis(
         answer: response.answer,
         provider: response.provider,
         model: response.model,
+        sources: response.sources ?? [],
       };
     }
     return { status: "error", message: response.message };
@@ -223,6 +238,28 @@ function App() {
             <p className="answer-meta">
               answered by {askState.provider} · {askState.model}
             </p>
+            {askState.sources.length > 0 && (
+              <div className="sources">
+                <p className="sources-heading">Sources</p>
+                <ul>
+                  {askState.sources.map((item) => (
+                    <li key={`${item.title}:${item.url}`}>
+                      <span>
+                        {item.title} — {item.source}
+                      </span>
+                      {item.url && (
+                        <button
+                          className="source-link"
+                          onClick={() => void openUrl(item.url).catch(console.error)}
+                        >
+                          reference
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

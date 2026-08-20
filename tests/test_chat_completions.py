@@ -82,6 +82,24 @@ class TestBuildMultimodalPayload:
 
         assert payload["thinking"] == {"type": "disabled"}
 
+    def test_knowledge_rides_in_a_second_system_message(self):
+        payload = build_multimodal_payload(
+            "m", "q", "data:", None, knowledge=["[1] Title (Source)\npassage text"]
+        )
+
+        system, knowledge_message, user = payload["messages"]
+        assert system["role"] == "system"
+        assert "retrieved" not in system["content"].lower() or "reference" not in system["content"]
+        assert knowledge_message["role"] == "system"
+        assert "takes precedence" in knowledge_message["content"]
+        assert "[1] Title (Source)\npassage text" in knowledge_message["content"]
+        assert user["content"][1]["text"] == "q"
+
+    def test_no_knowledge_message_without_knowledge(self):
+        payload = build_multimodal_payload("m", "q", "data:", None)
+
+        assert len(payload["messages"]) == 2
+
 
 class TestLoadImage:
     def test_reads_file_as_base64_data_url(self, tmp_path):

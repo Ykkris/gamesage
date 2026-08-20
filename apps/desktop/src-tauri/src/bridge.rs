@@ -225,6 +225,8 @@ pub enum AnalyzeResponse {
         answer: String,
         provider: String,
         model: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sources: Option<Vec<SourceInfo>>,
     },
     GameError {
         code: String,
@@ -232,11 +234,21 @@ pub enum AnalyzeResponse {
     },
 }
 
+/// One knowledge source used by an answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceInfo {
+    pub title: String,
+    pub source: String,
+    pub url: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct AnalyzeSuccessPayload {
     answer: String,
     provider: String,
     model: String,
+    #[serde(default)]
+    sources: Option<Vec<SourceInfo>>,
 }
 
 /// Parse the JSON envelope printed by `python -m companion.api analyze`.
@@ -259,6 +271,7 @@ pub fn parse_analyze_envelope(stdout: &str) -> Result<AnalyzeResponse, BridgeErr
                 answer: payload.answer,
                 provider: payload.provider,
                 model: payload.model,
+                sources: payload.sources,
             })
         }
         Some(false) => parse_game_error(&value),
@@ -408,10 +421,27 @@ mod tests {
                 answer,
                 provider,
                 model,
+                sources,
             }) => {
                 assert_eq!(answer, "You are near Oxenfurt.");
                 assert_eq!(provider, "zai");
                 assert_eq!(model, "glm-4.5v");
+                assert!(sources.is_none(), "responses without knowledge stay backward compatible");
+            }
+            other => panic!("expected analyze success, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_analyze_success_with_sources() {
+        let stdout = r#"{"ok": true, "answer": "Use your Witcher Senses.", "provider": "openai_compatible", "model": "local", "sources": [{"title": "Witcher Senses (mechanic)", "source": "GameSage starter corpus", "url": "https://witcher.fandom.com/wiki/Witcher_Senses"}]}"#;
+        match parse_analyze_envelope(stdout) {
+            Ok(AnalyzeResponse::Success { sources, .. }) => {
+                let sources = sources.expect("sources must be present");
+                assert_eq!(sources.len(), 1);
+                assert_eq!(sources[0].title, "Witcher Senses (mechanic)");
+                assert_eq!(sources[0].source, "GameSage starter corpus");
+                assert!(sources[0].url.starts_with("https://"));
             }
             other => panic!("expected analyze success, got {other:?}"),
         }
