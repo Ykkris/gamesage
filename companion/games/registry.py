@@ -7,12 +7,16 @@ unknown id fails clearly; omitting the id yields the v0.1 default game.
 from __future__ import annotations
 
 from companion.games.base import GameAdapter
+from companion.games.baldurs_gate_3.adapter import BALDURS_GATE_3_GAME
 from companion.games.witcher3.adapter import WITCHER3_GAME
 
-#: Game used when no explicit id is supplied (v0.1 single-game default).
+#: Game used when no explicit id is supplied (v0.1 default).
 DEFAULT_GAME_ID = WITCHER3_GAME.id
 
-_GAMES: dict[str, GameAdapter] = {WITCHER3_GAME.id: WITCHER3_GAME}
+_GAMES: dict[str, GameAdapter] = {
+    WITCHER3_GAME.id: WITCHER3_GAME,
+    BALDURS_GATE_3_GAME.id: BALDURS_GATE_3_GAME,
+}
 
 
 class UnknownGameError(ValueError):

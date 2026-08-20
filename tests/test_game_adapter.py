@@ -92,7 +92,7 @@ class TestRegistry:
         assert "witcher3" in str(excinfo.value)
 
     def test_available_game_ids(self):
-        assert available_game_ids() == ["witcher3"]
+        assert available_game_ids() == ["baldurs_gate_3", "witcher3"]
 
 
 class TestCaptureThroughAdapter:
