@@ -6,13 +6,13 @@ stages plus local knowledge retrieval:
 1. context extraction — a fixed internal question asks the provider to list
    what is visible in the screenshot (location/character/quest names, UI);
 2. retrieval — the user question plus a capped slice of that visual context
-   form the retrieval query over the local Witcher 3 corpus;
+   form the retrieval query over the selected game's local corpus;
 3. grounded answer — the user question is answered with the screenshot and
    the retrieved passages, which the provider must distinguish from visible
    information.
 
-The game context and corpus are wired here (v0.1 composition root, single
-supported game).
+Games are resolved through the adapter registry (``get_game``); nothing
+here imports a concrete game.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ import traceback
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from companion.games.witcher3.detection import GAME_NAME
-from companion.games.witcher3.knowledge.sources import load_corpus as load_witcher3_corpus
+from companion.games.base import GameAdapter
+from companion.games.registry import UnknownGameError, get_game
 from companion.knowledge.models import KnowledgeChunk
 from companion.knowledge.retrieval import RetrievalHit, has_any_term, retrieve, tokenize
 from companion.vision.errors import (
@@ -97,12 +97,16 @@ def format_knowledge_passages(hits: Sequence[RetrievalHit]) -> list[str]:
     ]
 
 
-def default_knowledge_retriever(query: str) -> list[RetrievalHit]:
-    """Retrieve from the bundled Witcher 3 corpus (cached, deterministic)."""
-    chunks = load_witcher3_corpus()
-    if not chunks:
-        return []
-    return retrieve(query, chunks, limit=KNOWLEDGE_LIMIT)
+def build_knowledge_retriever(game: GameAdapter) -> KnowledgeRetriever:
+    """Build the default retriever over a game's corpus (cached by adapter)."""
+    chunks = game.load_knowledge_corpus()
+
+    def retrieve_for_game(query: str) -> list[RetrievalHit]:
+        if not chunks:
+            return []
+        return retrieve(query, chunks, limit=KNOWLEDGE_LIMIT)
+
+    return retrieve_for_game
 
 
 def _source_entries(hits: Sequence[RetrievalHit]) -> list[dict[str, str]]:
@@ -115,12 +119,16 @@ def _source_entries(hits: Sequence[RetrievalHit]) -> list[dict[str, str]]:
 def run_analysis(
     image_path: Path,
     question: str,
+    game_id: str | None = None,
     *,
     provider_factory: ProviderFactory = create_provider,
-    context: str | None = GAME_NAME,
-    knowledge_retriever: KnowledgeRetriever | None = default_knowledge_retriever,
+    knowledge_retriever: KnowledgeRetriever | None = None,
 ) -> dict:
     """Answer ``question`` about the screenshot, grounded in local knowledge.
+
+    ``game_id`` selects the adapter (default game when omitted); its
+    ``display_name`` becomes the vision context and its corpus backs the
+    default knowledge retriever.
 
     Returns ``{"ok": True, "answer", "provider", "model"}`` plus
     ``"sources"`` when retrieved knowledge was used, or
@@ -134,14 +142,15 @@ def run_analysis(
             "error": {"code": "invalid_request", "message": "A question is required."},
         }
     try:
+        game = get_game(game_id)
+        if knowledge_retriever is None:
+            knowledge_retriever = build_knowledge_retriever(game)
         provider = provider_factory()
         visual_context = provider.analyze(
-            image_path, CONTEXT_EXTRACTION_QUESTION, context=context
+            image_path, CONTEXT_EXTRACTION_QUESTION, context=game.display_name
         ).answer
-        retrieved: Sequence[RetrievalHit] = (
-            knowledge_retriever(build_retrieval_query(question, visual_context))
-            if knowledge_retriever is not None
-            else []
+        retrieved: Sequence[RetrievalHit] = knowledge_retriever(
+            build_retrieval_query(question, visual_context)
         )
         # Question-anchor rule: retrieved knowledge must share at least one
         # term with the user's question. Scene context alone cannot qualify
@@ -152,8 +161,13 @@ def run_analysis(
             retrieved = [hit for hit in retrieved if has_any_term(hit.chunk, question_terms)]
         knowledge = format_knowledge_passages(retrieved) or None
         result: AnalysisResult = provider.analyze(
-            image_path, question, context=context, knowledge=knowledge
+            image_path, question, context=game.display_name, knowledge=knowledge
         )
+    except UnknownGameError as error:
+        return {
+            "ok": False,
+            "error": {"code": "unknown_game", "message": str(error)},
+        }
     except VisionError as error:
         return {
             "ok": False,
@@ -180,6 +194,6 @@ def run_analysis(
     return payload
 
 
-def knowledge_chunks() -> tuple[KnowledgeChunk, ...]:
-    """The loaded Witcher 3 corpus (convenience for diagnostics/tests)."""
-    return load_witcher3_corpus()
+def knowledge_chunks(game_id: str | None = None) -> Sequence[KnowledgeChunk]:
+    """The selected game's corpus (convenience for diagnostics/tests)."""
+    return get_game(game_id).load_knowledge_corpus()

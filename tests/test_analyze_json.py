@@ -162,7 +162,7 @@ class TestCliAnalyze:
     def test_prints_json_and_exits_zero(self, capsys):
         code = main(
             ["analyze", "--image", "shot.png", "--question", "What?"],
-            run_analyze_command=lambda image, question: {
+            run_analyze_command=lambda image, question, game_id: {
                 "ok": True,
                 "answer": "a",
                 "provider": "zai",
@@ -178,7 +178,7 @@ class TestCliAnalyze:
     def test_failure_envelope_exits_one(self, capsys):
         code = main(
             ["analyze", "--image", "shot.png", "--question", "What?"],
-            run_analyze_command=lambda image, question: {
+            run_analyze_command=lambda image, question, game_id: {
                 "ok": False,
                 "error": {"code": "provider_not_configured", "message": "m"},
             },
@@ -186,6 +186,20 @@ class TestCliAnalyze:
 
         assert code == 1
         assert json.loads(capsys.readouterr().out)["ok"] is False
+
+    def test_passes_explicit_game_id_through(self, capsys):
+        seen = {}
+
+        def fake_run(image, question, game_id):
+            seen["game_id"] = game_id
+            return {"ok": True}
+
+        main(
+            ["analyze", "--image", "shot.png", "--question", "q", "--game", "witcher3"],
+            run_analyze_command=fake_run,
+        )
+
+        assert seen["game_id"] == "witcher3"
 
 
 class TestLoadEnvFile:

@@ -1,11 +1,12 @@
 """Tests for knowledge-grounded analysis (sources in the JSON envelope)."""
 
 from companion.api.analyze_json import (
+    build_knowledge_retriever,
     build_retrieval_query,
-    default_knowledge_retriever,
     format_knowledge_passages,
     run_analysis,
 )
+from companion.games.registry import get_game
 from companion.knowledge.retrieval import RetrievalHit
 from companion.vision.models import AnalysisResult
 
@@ -128,8 +129,10 @@ class TestRunAnalysisWithKnowledge:
         assert "griffin" in seen[0]
         assert "What now?" in seen[0]
 
-    def test_default_retriever_uses_local_witcher3_corpus(self):
-        hits = default_knowledge_retriever("griffin attacks travelers near the village")
+    def test_default_retriever_uses_game_corpus(self):
+        retriever = build_knowledge_retriever(get_game())
+
+        hits = retriever("griffin attacks travelers near the village")
 
         assert hits, "expected a hit from the bundled corpus"
         assert all(hit.chunk.id.startswith("witcher3-") for hit in hits)

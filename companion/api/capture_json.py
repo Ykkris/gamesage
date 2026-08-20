@@ -5,9 +5,8 @@ This module is the desktop bridge: the Tauri layer invokes
 envelope printed on stdout. Human-facing console output
 (``python -m companion.games.witcher3``) stays separate.
 
-v0.1 composition root: GameSage supports a single game, so this module wires
-the bridge to the Witcher 3 pipeline. When a second game arrives, game
-selection should be injected here.
+Games are resolved through the adapter registry (``get_game``); nothing
+here imports a concrete game.
 """
 
 from __future__ import annotations
@@ -25,8 +24,8 @@ from companion.capture.window_detection import (
     WindowDetectionError,
     WindowMinimizedError,
 )
-from companion.games.witcher3.capture import save_capture
-from companion.games.witcher3.detection import GAME_ID, detect_window
+from companion.games.base import GameAdapter
+from companion.games.registry import UnknownGameError, get_game
 
 Detector = Callable[[], GameWindow]
 Captor = Callable[[GameWindow], CaptureResult]
@@ -50,11 +49,16 @@ def error_code(error: Exception) -> str:
 
 def run_capture(
     screenshots_dir: Path | None = None,
+    game_id: str | None = None,
     *,
-    detect: Detector = detect_window,
+    detect: Detector | None = None,
     capture: Captor = capture_window,
 ) -> dict:
-    """Run the capture pipeline and return a JSON-serializable envelope.
+    """Run the capture pipeline for a game and return a JSON envelope.
+
+    ``game_id`` selects the adapter (default game when omitted). ``detect``
+    defaults to the adapter's window detection; ``capture`` is the generic
+    window capture and normally not replaced.
 
     Returns ``{"ok": True, ...capture details}`` or
     ``{"ok": False, "error": {"code", "message"}}``. Unexpected exceptions are
@@ -62,9 +66,17 @@ def run_capture(
     reach the desktop UI.
     """
     try:
+        game = get_game(game_id)
+        if detect is None:
+            detect = game.detect_window
         window = detect()
         result = capture(window)
-        path = save_capture(result, screenshots_dir)
+        path = game.save_capture(result, screenshots_dir)
+    except UnknownGameError as error:
+        return {
+            "ok": False,
+            "error": {"code": "unknown_game", "message": str(error)},
+        }
     except (WindowDetectionError, WindowCaptureError) as error:
         return {
             "ok": False,
@@ -85,7 +97,7 @@ def run_capture(
 
     return {
         "ok": True,
-        "game_id": GAME_ID,
+        "game_id": game.id,
         "window_title": window.title,
         "width": result.width,
         "height": result.height,

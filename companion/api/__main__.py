@@ -53,8 +53,8 @@ def load_env_file(path: Path, *, environ: dict[str, str] | None = None) -> int:
 def main(
     argv: list[str] | None = None,
     *,
-    run_capture_command: Callable[[Path | None], dict] = run_capture,
-    run_analyze_command: Callable[[Path, str], dict] = run_analysis,
+    run_capture_command: Callable[[Path | None, str | None], dict] = run_capture,
+    run_analyze_command: Callable[[Path, str, str | None], dict] = run_analysis,
 ) -> int:
     load_env_file(Path(".env"))
 
@@ -73,18 +73,28 @@ def main(
         default=None,
         help="directory for saved screenshots (default: ./screenshots)",
     )
+    capture.add_argument(
+        "--game",
+        default=None,
+        help="game id (default: the currently supported game)",
+    )
 
     analyze = subcommands.add_parser(
         "analyze", help="answer a question about a screenshot; print a JSON envelope"
     )
     analyze.add_argument("--image", type=Path, required=True, help="screenshot path (PNG)")
     analyze.add_argument("--question", required=True, help="question about the screenshot")
+    analyze.add_argument(
+        "--game",
+        default=None,
+        help="game id (default: the currently supported game)",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "capture":
-        payload = run_capture_command(args.screenshots_dir)
+        payload = run_capture_command(args.screenshots_dir, args.game)
     else:
-        payload = run_analyze_command(args.image, args.question)
+        payload = run_analyze_command(args.image, args.question, args.game)
     print(json.dumps(payload))
     return 0 if payload["ok"] else 1
 

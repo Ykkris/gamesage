@@ -120,11 +120,12 @@ class TestErrorCodeMapping:
 
 class TestCliMain:
     def test_prints_single_json_line_and_exits_zero(self, tmp_path, capsys):
-        def fake_run(directory):
+        def fake_run(directory, game_id):
             return {"ok": True, "screenshot_path": str(directory)}
 
         exit_code = main(
-            ["capture", "--screenshots-dir", str(tmp_path)], run_capture_command=fake_run
+            ["capture", "--screenshots-dir", str(tmp_path)],
+            run_capture_command=fake_run,
         )
 
         assert exit_code == 0
@@ -133,10 +134,22 @@ class TestCliMain:
         assert json.loads(lines[0]) == {"ok": True, "screenshot_path": str(tmp_path)}
 
     def test_failure_envelope_exits_one(self, tmp_path, capsys):
-        def failing_run(directory):
+        def failing_run(directory, game_id):
             return {"ok": False, "error": {"code": "game_not_running", "message": "m"}}
 
         exit_code = main(["capture"], run_capture_command=failing_run)
 
         assert exit_code == 1
         assert json.loads(capsys.readouterr().out)["ok"] is False
+
+    def test_passes_explicit_game_id_through(self, tmp_path, capsys):
+        seen = {}
+
+        def fake_run(directory, game_id):
+            seen["game_id"] = game_id
+            return {"ok": True}
+
+        main(["capture", "--game", "witcher3"], run_capture_command=fake_run)
+
+        assert seen["game_id"] == "witcher3"
+        assert json.loads(capsys.readouterr().out)["ok"] is True
