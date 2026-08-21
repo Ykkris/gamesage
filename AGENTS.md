@@ -304,7 +304,15 @@ Do not optimize for high-frequency capture yet.
 
 # Game Adapters
 
-Each supported game exposes game-specific behavior through the established `GameAdapter` interface in:
+Game support comes in two forms, exposed through one unified registry:
+
+1. **Declarative Game Definitions** — data-only community `game.toml`
+   files discovered from search roots (`game_definitions/`,
+   `%LOCALAPPDATA%\GameSage\games`, `GAMESAGE_GAME_DEFINITIONS`); the
+   loader never executes definition content. See
+   `docs/game-definitions-v1.md`.
+2. **Native GameAdapters** — Python adapters for games needing custom
+   behavior, defined by the established interface in:
 
 ```text
 companion/games/base.py
@@ -316,13 +324,22 @@ with an explicit registry in:
 companion/games/registry.py
 ```
 
-The current contract (id, display name, window detection, capture naming, knowledge corpus) and the steps for adding a new game are documented in:
+The current native contract (id, display name, window detection, capture
+naming) and the steps for adding a new native game are documented in:
 
 ```text
 docs/adding-a-game.md
 ```
 
-Generic modules (`companion/capture/`, `companion/knowledge/`, `companion/vision/`, `companion/api/`) must not import concrete games; they resolve adapters through the registry.
+Prefer a declarative Game Definition for ordinary games; write a native
+adapter only when declarative rules cannot express the behavior. Native
+adapters take precedence over definitions claiming the same game id.
+Knowledge belongs to Knowledge Packs (associated by `game_id`), never to
+adapters.
+
+Generic modules (`companion/capture/`, `companion/knowledge/`,
+`companion/vision/`, `companion/api/`) must not import concrete games;
+they resolve adapters through the unified registry.
 
 The first adapter is:
 

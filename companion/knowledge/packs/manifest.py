@@ -7,22 +7,21 @@ is ever executed.
 
 from __future__ import annotations
 
-import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+from companion.specs import (
+    GAMESAGE_VERSION,
+    is_namespaced_id,
+    parse_version,
+    version_within_bounds,
+)
+
 #: The Knowledge Pack schema version implemented by this loader.
 SCHEMA_VERSION = 1
 
-#: GameSage version used for ``gamesage_min_version``/``max_version`` checks.
-#: Kept in sync with pyproject.toml for the development prototype.
-GAMESAGE_VERSION = "0.1.0"
-
 _REQUIRED_FIELDS = ("id", "game_id", "version", "name", "author")
-
-#: Pack ids: dot-separated namespaced segments, e.g. "author.game.pack".
-_PACK_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)+$")
 
 _STRING_FIELDS = (
     "id",
@@ -99,7 +98,7 @@ def parse_manifest_file(path: Path) -> PackManifest:
         )
 
     pack_id = data["id"]
-    if len(pack_id) > 200 or not _PACK_ID_PATTERN.match(pack_id):
+    if not is_namespaced_id(pack_id):
         raise ManifestError(
             f"invalid pack id {pack_id!r}: expected lowercase dot-separated "
             "segments with at least a namespace and a name, e.g. 'author.game.pack'."
@@ -151,19 +150,15 @@ def compatibility_problem(manifest: PackManifest) -> str | None:
     satisfy; otherwise None.
     """
     try:
-        current = parse_version(GAMESAGE_VERSION)
-        minimum = parse_version(manifest.gamesage_min_version) if manifest.gamesage_min_version else None
-        maximum = parse_version(manifest.gamesage_max_version) if manifest.gamesage_max_version else None
+        if not version_within_bounds(
+            GAMESAGE_VERSION, manifest.gamesage_min_version, manifest.gamesage_max_version
+        ):
+            return (
+                f"requires GameSage"
+                + (f" >= {manifest.gamesage_min_version}" if manifest.gamesage_min_version else "")
+                + (f" <= {manifest.gamesage_max_version}" if manifest.gamesage_max_version else "")
+                + f" (this is {GAMESAGE_VERSION})."
+            )
     except ValueError as error:
         return f"unreadable version bound: {error}"
-    if minimum is not None and current < minimum:
-        return (
-            f"requires GameSage >= {manifest.gamesage_min_version} "
-            f"(this is {GAMESAGE_VERSION})."
-        )
-    if maximum is not None and current > maximum:
-        return (
-            f"requires GameSage <= {manifest.gamesage_max_version} "
-            f"(this is {GAMESAGE_VERSION})."
-        )
     return None

@@ -7,6 +7,7 @@ import "./App.css";
 type GameInfo = {
   id: string;
   display_name: string;
+  origin?: string;
 };
 
 type GamesState =

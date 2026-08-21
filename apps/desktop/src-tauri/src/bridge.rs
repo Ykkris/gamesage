@@ -340,6 +340,8 @@ pub async fn analyze_game(
 pub struct GameInfo {
     pub id: String,
     pub display_name: String,
+    #[serde(default)]
+    pub origin: Option<String>,
 }
 
 /// Supported games from the Python registry (the Rust layer holds no game list).
@@ -619,7 +621,7 @@ mod tests {
 
     #[test]
     fn parses_games_envelope() {
-        let stdout = r#"{"ok": true, "games": [{"id": "witcher3", "display_name": "The Witcher 3: Wild Hunt"}], "default_game": "witcher3"}"#;
+        let stdout = r#"{"ok": true, "games": [{"id": "witcher3", "display_name": "The Witcher 3: Wild Hunt", "origin": "native"}], "default_game": "witcher3"}"#;
         let response = parse_games_envelope(stdout).expect("valid envelope");
         assert_eq!(response.default_game, "witcher3");
         assert_eq!(
@@ -627,8 +629,16 @@ mod tests {
             vec![GameInfo {
                 id: "witcher3".to_string(),
                 display_name: "The Witcher 3: Wild Hunt".to_string(),
+                origin: Some("native".to_string()),
             }]
         );
+    }
+
+    #[test]
+    fn parses_games_envelope_without_origin_for_backward_compatibility() {
+        let stdout = r#"{"ok": true, "games": [{"id": "bg3", "display_name": "Baldur's Gate 3"}], "default_game": "bg3"}"#;
+        let response = parse_games_envelope(stdout).expect("valid envelope");
+        assert_eq!(response.games[0].origin, None);
     }
 
     #[test]

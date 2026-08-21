@@ -1,11 +1,52 @@
 # Adding a game
 
-How to add support for a new game to GameSage. The Witcher 3
-(`companion/games/witcher3/`) is the reference implementation.
+There are two ways to make GameSage support a game:
 
-## The contract
+1. **Declarative Game Definition** — preferred for ordinary games.
+   A data-only `game.toml` published as a community artifact; no GameSage
+   source changes. See `docs/game-definitions-v1.md`.
+2. **Native GameAdapter** — a Python adapter inside GameSage source
+   code, required only for behavior a definition cannot express.
 
-A game is represented by a `GameAdapter` (see `companion/games/base.py`):
+Start with a Game Definition. Only write a native adapter when the game
+genuinely needs custom logic (unusual window selection, special capture
+handling, game-specific behavior beyond declarative rules).
+
+## Option 1: Declarative Game Definition
+
+Create a directory with a `game.toml` declaring the game id,
+display name, executable names, and window-title match values:
+
+```toml
+schema_version = 1
+id = "kingdom_come_deliverance_3"
+display_name = "Kingdom Come: Deliverance III"
+definition_id = "someauthor.kcd3.windows"
+version = "1.0.0"
+author = "Some Author"
+platform = "windows"
+executables = ["KingdomCome3.exe"]
+window_titles = ["Kingdom Come: Deliverance III"]
+window_title_mode = "starts_with"
+```
+
+Install it into `game_definitions/` (development) or
+`%LOCALAPPDATA%\GameSage\games\` (users). GameSage discovers,
+validates, and exposes it through the unified registry — the desktop
+selector, capture, and knowledge association work automatically through
+the shared `game_id`. Validation tooling:
+
+```
+python -m tools.games validate path/to/definition
+python -m tools.games inspect path/to/definition
+```
+
+Knowledge comes from Knowledge Packs declaring the same `game_id`
+(`docs/knowledge-packs-v1.md`); a new game ships fine without any.
+
+## Option 2: Native GameAdapter
+
+The `GameAdapter` interface (`companion/games/base.py`):
 
 | Member            | Purpose                                                  |
 | ----------------- | -------------------------------------------------------- |
@@ -21,7 +62,7 @@ of the adapter: installed Knowledge Packs associate with a game through
 the `game_id` declared in their manifest (see
 `docs/knowledge-packs-v1.md` and `companion/knowledge/packs/`).
 
-## Steps
+### Steps
 
 1. **Create the package** under `companion/games/<game_id>/`
    (e.g. `companion/games/baldursgate3/`).
@@ -42,12 +83,13 @@ the `game_id` declared in their manifest (see
    delegates to the modules above. See `witcher3/adapter.py`.
 
 5. **Register it** in `companion/games/registry.py` by adding the adapter
-   instance to `_GAMES`. The registry is explicit — no plugin discovery,
-   entry points, or package scanning.
+   instance to `_NATIVE_GAMES`. The registry is explicit — no plugin
+   discovery, entry points, or package scanning. Native adapters take
+   precedence over declarative definitions claiming the same game id.
 
 6. **Add tests** covering adapter metadata, detection rules (with injected
-   enumerators), corpus loading, and registry lookup. Existing games must
-   keep passing: `pytest`, `cargo test`, `pnpm build`.
+   enumerators), and registry lookup. Existing games must keep passing:
+   `pytest`, `cargo test`, `pnpm build`.
 
 ## What must NOT go into generic core modules
 
@@ -58,14 +100,17 @@ the `game_id` declared in their manifest (see
 - no imports of `companion.games.<game>`;
 - no `if game == "..."` branching.
 
-Games enter generic flows only through the registry
-(`get_game(game_id)`) and the `GameAdapter` it returns.
+Games enter generic flows only through the unified registry
+(`get_game(game_id)`) and the `GameAdapter` it returns — whether that
+adapter is native or backed by a declarative Game Definition is
+invisible to consumers.
 
 ## Desktop behavior
 
 The desktop app asks `python -m companion.api games` at startup and
-displays the registry metadata; capture and analysis pass the selected
-`game_id` through the Rust bridge to the Python CLI. A screenshot belongs
-to the game that produced it (`game_id` in the capture envelope), and
-analysis always uses the capture's game id. With a second registered game,
-the header automatically renders a game selector — nothing else changes.
+displays the registry metadata (including declarative games, marked
+`origin: "community"`); capture and analysis pass the selected `game_id`
+through the Rust bridge to the Python CLI. A screenshot belongs to the
+game that produced it (`game_id` in the capture envelope), and analysis
+always uses the capture's game id. New registered games appear in the
+header selector automatically — nothing else changes.

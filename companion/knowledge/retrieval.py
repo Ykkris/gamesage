@@ -35,8 +35,14 @@ def tokenize(text: str) -> list[str]:
 #: Default BM25 floor. Calibrated on the starter corpus: accidental matches
 #: on a single common term (e.g. one generic scene word) score around
 #: 1.1-1.3, while distinctive-term matches score >= ~1.8. Anything under
-#: the floor is treated as a weak lexical coincidence and dropped.
+#: the floor is treated as a weak lexical coincidence unless the coverage
+#: rule below passes.
 DEFAULT_MIN_SCORE = 1.5
+
+#: Coverage-rule denominator cap. Long queries (e.g. question plus visual
+#: context) must cover half of at most this many distinct terms, so a
+#: handful of strong matches still qualifies.
+COVERAGE_TERM_CAP = 8
 
 
 class RetrievalHit:
@@ -63,15 +69,20 @@ def retrieve(
 ) -> list[RetrievalHit]:
     """Return the top ``limit`` chunks ranked by BM25 relevance to ``query``.
 
-    Chunks scoring below ``min_score`` are dropped, so weak lexical
-    coincidences (an accidental single common term) yield no results; pass
-    ``min_score=0`` to observe raw ranking. Ties are broken by chunk id so
-    results are fully deterministic.
+    A chunk is kept when its BM25 score reaches ``min_score`` OR when the
+    coverage rule passes: at least two distinct query terms match, covering
+    at least half of the query's distinct terms (capped at
+    ``COVERAGE_TERM_CAP`` terms for long combined queries). The coverage
+    rule keeps small corpora (where per-term idf is structurally low)
+    retrievable while still rejecting single-common-term coincidences.
+    Pass ``min_score=0`` to observe raw ranking. Ties are broken by chunk
+    id so results are fully deterministic.
     """
     query_terms = tokenize(query)
     if not query_terms or not chunks:
         return []
 
+    distinct_query_terms = set(query_terms)
     documents = [_document_terms(chunk) for chunk in chunks]
     total = len(documents)
     lengths = [len(doc) for doc in documents]
@@ -82,19 +93,25 @@ def retrieve(
         for term in set(document):
             document_frequency[term] = document_frequency.get(term, 0) + 1
 
+    coverage_threshold = math.ceil(
+        min(len(distinct_query_terms), COVERAGE_TERM_CAP) / 2
+    )
     scored: list[tuple[float, str, int]] = []
     for index, document in enumerate(documents):
         term_frequency = _count_terms(document)
         score = 0.0
-        for term in query_terms:
+        matched_terms = 0
+        for term in distinct_query_terms:
             tf = term_frequency.get(term, 0)
             if tf == 0:
                 continue
+            matched_terms += 1
             df = document_frequency.get(term, 0)
             idf = math.log(1 + (total - df + 0.5) / (df + 0.5))
             length_norm = k1 * (1 - b + b * lengths[index] / average_length)
             score += idf * tf * (k1 + 1) / (tf + length_norm)
-        if score >= min_score:
+        coverage_pass = matched_terms >= 2 and matched_terms >= coverage_threshold
+        if score >= min_score or coverage_pass:
             scored.append((score, chunks[index].id, index))
 
     scored.sort(key=lambda item: (-item[0], item[1]))

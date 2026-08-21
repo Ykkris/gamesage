@@ -121,6 +121,36 @@ class TestRelevanceGate:
     def test_floor_can_be_disabled_for_raw_ranking(self):
         assert retrieve("spaceship engine village", CORPUS, min_score=0) != []
 
+    def test_small_corpus_multi_term_coverage_passes_floor(self):
+        # BM25 idf is structurally low in tiny corpora (e.g. single-record
+        # community packs); strong term coverage must still retrieve.
+        from companion.knowledge.models import KnowledgeChunk
+
+        tiny_corpus = [
+            KnowledgeChunk(
+                id="only",
+                title="Notepad mechanics",
+                text="Notepad is a plain text editor for taking quick notes.",
+            )
+        ]
+
+        hits = retrieve("plain text editor notes", tiny_corpus)
+
+        assert hits and hits[0].chunk.id == "only"
+
+    def test_small_corpus_single_term_still_blocked(self):
+        from companion.knowledge.models import KnowledgeChunk
+
+        tiny_corpus = [
+            KnowledgeChunk(
+                id="only",
+                title="Notepad mechanics",
+                text="Notepad is a plain text editor for taking quick notes.",
+            )
+        ]
+
+        assert retrieve("spaceship editor", tiny_corpus) == []
+
     def test_witcher3_corpus_preserves_good_queries(self):
         from companion.knowledge.packs.registry import KnowledgePackRegistry
 

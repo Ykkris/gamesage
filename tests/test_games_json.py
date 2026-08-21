@@ -14,8 +14,12 @@ class TestRunGames:
         assert payload == {
             "ok": True,
             "games": [
-                {"id": "baldurs_gate_3", "display_name": "Baldur's Gate 3"},
-                {"id": "witcher3", "display_name": "The Witcher 3: Wild Hunt"},
+                {"id": "baldurs_gate_3", "display_name": "Baldur's Gate 3", "origin": "native"},
+                {
+                    "id": "witcher3",
+                    "display_name": "The Witcher 3: Wild Hunt",
+                    "origin": "native",
+                },
             ],
             "default_game": "witcher3",
         }

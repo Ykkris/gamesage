@@ -6,17 +6,26 @@ truth; this module only serializes it.
 
 from __future__ import annotations
 
-from companion.games.registry import DEFAULT_GAME_ID, available_game_ids, get_game
+from companion.games.registry import available_game_ids, game_origin, get_game
 
 
 def run_games() -> dict:
     """List registered games with the default game id.
 
-    Returns ``{"ok": True, "games": [{"id", "display_name"}], "default_game"}``.
+    Returns ``{"ok": True, "games": [{"id", "display_name", "origin"}],
+    "default_game"}`` — ``origin`` distinguishes native games from
+    community Game Definitions.
     """
     games = [get_game(game_id) for game_id in available_game_ids()]
     return {
         "ok": True,
-        "games": [{"id": game.id, "display_name": game.display_name} for game in games],
-        "default_game": DEFAULT_GAME_ID,
+        "games": [
+            {
+                "id": game.id,
+                "display_name": game.display_name,
+                "origin": game_origin(game.id),
+            }
+            for game in games
+        ],
+        "default_game": get_game().id,
     }

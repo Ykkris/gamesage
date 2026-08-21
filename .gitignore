@@ -54,3 +54,6 @@ screenshots/
 # Knowledge Packs: everything except the built-in starter pack
 knowledge_packs/*
 !knowledge_packs/gamesage.witcher3.starter/
+
+# Community Game Definitions: local installs only
+game_definitions/
