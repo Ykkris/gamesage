@@ -1,9 +1,10 @@
-# GameSage
+<p align="center">
+  <img src="docs/assets/branding/gamesage-logo.png" alt="GameSage" width="220">
+</p>
 
-> Your open-source AI gaming companion.
-
-<!-- Official logo placeholder: add when the asset is committed, e.g.
-<p align="center"><img src="docs/assets/logo.png" alt="GameSage" width="120"></p> -->
+<p align="center">
+  <strong>Your open-source AI gaming companion.</strong>
+</p>
 
 GameSage captures what is happening in your game, understands it through a
 vision model, retrieves relevant installed game knowledge, and answers
@@ -14,9 +15,13 @@ games and their knowledge can be created and distributed independently of
 GameSage itself. The Witcher 3 is the pilot game, not the architectural
 scope: GameSage is built to become multi-game and community-extensible.
 
-<!-- Hero screenshot placeholder: add a current Assistant-view capture
-     (game screenshot + question + answer + Sources), e.g.
-<p align="center"><img src="docs/assets/assistant-view.png" alt="GameSage Assistant view"></p> -->
+<p align="center">
+  <img
+    src="docs/assets/screenshots/assistant-witcher3.png"
+    alt="GameSage Assistant analyzing The Witcher 3"
+    width="900"
+  >
+</p>
 
 ## How it works
 
@@ -78,6 +83,14 @@ it.
 `game_id` is the only link between game support and knowledge: any
 Knowledge Pack declaring the same `game_id` as an installed game works
 automatically, whether the game is native or community-defined.
+
+<p align="center">
+  <img
+    src="docs/assets/screenshots/community-content.png"
+    alt="GameSage Community Content view"
+    width="900"
+  >
+</p>
 
 ## Community standards
 
