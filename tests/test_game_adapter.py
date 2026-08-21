@@ -63,11 +63,9 @@ class TestWitcher3Adapter:
         assert path.name.startswith("witcher3-")
         assert path.read_bytes() == b"png"
 
-    def test_load_knowledge_corpus_returns_witcher3_chunks(self):
-        chunks = WITCHER3_GAME.load_knowledge_corpus()
-
-        assert chunks
-        assert all(chunk.id.startswith("witcher3-") for chunk in chunks)
+    def test_adapter_represents_game_not_knowledge(self):
+        """Knowledge ownership lives in the pack registry, not the adapter."""
+        assert not hasattr(WITCHER3_GAME, "load_knowledge_corpus")
 
     def test_fresh_instance_behaves_identically(self):
         assert Witcher3Game().id == WITCHER3_GAME.id

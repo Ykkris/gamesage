@@ -48,8 +48,11 @@ class TestAdapter:
         assert isinstance(BALDURS_GATE_3_GAME, GameAdapter)
         assert BaldursGate3Game().id == "baldurs_gate_3"
 
-    def test_knowledge_corpus_is_empty(self):
-        assert BALDURS_GATE_3_GAME.load_knowledge_corpus() == ()
+    def test_no_knowledge_packs_installed_for_bg3(self):
+        """BG3 has no installed packs: empty knowledge, vision-only answers."""
+        from companion.knowledge.packs.registry import KnowledgePackRegistry
+
+        assert KnowledgePackRegistry().chunks_for_game("baldurs_gate_3") == ()
 
     def test_save_capture_uses_bg3_naming(self, tmp_path):
         path = BALDURS_GATE_3_GAME.save_capture(

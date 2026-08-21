@@ -1,15 +1,13 @@
 """Generic game adapter interface.
 
-A game adapter composes the game's own detection rules and knowledge with
-the generic capture/knowledge layers — it does not reimplement low-level
-screen capture or retrieval. The smallest seams needed today are identity,
-window detection, capture naming, corpus access, and the display name used
-as vision context.
+A game adapter represents the GAME: identity and detection rules composed
+with the generic capture layer. Installed KNOWLEDGE is owned by the
+Knowledge Pack registry (``companion/knowledge/packs/``), which resolves
+packs by the adapter's ``game_id`` — adapters do not carry knowledge packs.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -19,7 +17,6 @@ from companion.capture.window_detection import (
     ProcessEnumerator,
     WindowEnumerator,
 )
-from companion.knowledge.models import KnowledgeChunk
 
 
 @runtime_checkable
@@ -42,8 +39,4 @@ class GameAdapter(Protocol):
         self, result: CaptureResult, directory: Path | None = None
     ) -> Path:
         """Save a capture under ``directory`` with the game's naming."""
-        ...
-
-    def load_knowledge_corpus(self) -> Sequence[KnowledgeChunk]:
-        """The game's local knowledge corpus (may be empty)."""
         ...

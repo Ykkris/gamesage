@@ -129,13 +129,13 @@ class TestRunAnalysisWithKnowledge:
         assert "griffin" in seen[0]
         assert "What now?" in seen[0]
 
-    def test_default_retriever_uses_game_corpus(self):
-        retriever = build_knowledge_retriever(get_game())
+    def test_default_retriever_uses_installed_packs(self):
+        retriever = build_knowledge_retriever(get_game().id)
 
         hits = retriever("griffin attacks travelers near the village")
 
-        assert hits, "expected a hit from the bundled corpus"
-        assert all(hit.chunk.id.startswith("witcher3-") for hit in hits)
+        assert hits, "expected a hit from the installed starter pack"
+        assert all(hit.chunk.pack_id == "gamesage.witcher3.starter" for hit in hits)
 
     def test_analysis_with_default_retriever_includes_sources(self):
         provider = FakeProvider(visual_context="Griffin attacking travelers near White Orchard village")

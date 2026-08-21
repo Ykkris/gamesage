@@ -1,13 +1,12 @@
 """The Witcher 3 implementation of the generic GameAdapter interface.
 
-Thin delegation to the existing game modules: detection rules, capture
-naming, and the bundled knowledge corpus. All low-level capture and
-retrieval logic stays in the generic layers.
+Thin delegation to the game modules: detection rules and capture naming.
+Knowledge for Witcher 3 comes from installed Knowledge Packs (see
+``knowledge_packs/gamesage.witcher3.starter``), resolved by game id.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 from companion.capture.window_capture import CaptureResult
@@ -17,11 +16,9 @@ from companion.capture.window_detection import (
     WindowEnumerator,
 )
 from companion.games.base import GameAdapter
-from companion.knowledge.models import KnowledgeChunk
 
 from .capture import save_capture
 from .detection import GAME_ID, GAME_NAME, detect_window
-from .knowledge.sources import load_corpus
 
 
 class Witcher3Game(GameAdapter):
@@ -46,9 +43,6 @@ class Witcher3Game(GameAdapter):
         self, result: CaptureResult, directory: Path | None = None
     ) -> Path:
         return save_capture(result, directory)
-
-    def load_knowledge_corpus(self) -> tuple[KnowledgeChunk, ...]:
-        return load_corpus()
 
 
 #: Shared singleton (stateless adapter).

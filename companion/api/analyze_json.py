@@ -20,11 +20,12 @@ from __future__ import annotations
 import sys
 import traceback
 from collections.abc import Callable, Sequence
+from functools import lru_cache
 from pathlib import Path
 
-from companion.games.base import GameAdapter
 from companion.games.registry import UnknownGameError, get_game
 from companion.knowledge.models import KnowledgeChunk
+from companion.knowledge.packs.registry import KnowledgePackRegistry
 from companion.knowledge.retrieval import RetrievalHit, has_any_term, retrieve, tokenize
 from companion.vision.errors import (
     InvalidImageError,
@@ -97,9 +98,12 @@ def format_knowledge_passages(hits: Sequence[RetrievalHit]) -> list[str]:
     ]
 
 
-def build_knowledge_retriever(game: GameAdapter) -> KnowledgeRetriever:
-    """Build the default retriever over a game's corpus (cached by adapter)."""
-    chunks = game.load_knowledge_corpus()
+def build_knowledge_retriever(
+    game_id: str, *, registry: KnowledgePackRegistry | None = None
+) -> KnowledgeRetriever:
+    """Build the default retriever over the game's installed packs."""
+    packs = registry if registry is not None else default_pack_registry()
+    chunks = packs.chunks_for_game(game_id)
 
     def retrieve_for_game(query: str) -> list[RetrievalHit]:
         if not chunks:
@@ -144,7 +148,7 @@ def run_analysis(
     try:
         game = get_game(game_id)
         if knowledge_retriever is None:
-            knowledge_retriever = build_knowledge_retriever(game)
+            knowledge_retriever = build_knowledge_retriever(game.id)
         provider = provider_factory()
         visual_context = provider.analyze(
             image_path, CONTEXT_EXTRACTION_QUESTION, context=game.display_name
@@ -194,6 +198,16 @@ def run_analysis(
     return payload
 
 
+def default_pack_registry() -> KnowledgePackRegistry:
+    """The process-wide pack registry (discovery runs once per process)."""
+    return _default_registry()
+
+
+@lru_cache(maxsize=1)
+def _default_registry() -> KnowledgePackRegistry:
+    return KnowledgePackRegistry()
+
+
 def knowledge_chunks(game_id: str | None = None) -> Sequence[KnowledgeChunk]:
-    """The selected game's corpus (convenience for diagnostics/tests)."""
-    return get_game(game_id).load_knowledge_corpus()
+    """The selected game's installed pack chunks (diagnostics/tests)."""
+    return default_pack_registry().chunks_for_game(get_game(game_id).id)

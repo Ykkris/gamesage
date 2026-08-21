@@ -411,16 +411,20 @@ Knowledge retrieval belongs under:
 companion/knowledge/
 ```
 
-Game-specific knowledge may live under:
+Game knowledge is delivered through **Knowledge Packs** — data-only,
+community-authorable directories discovered from the knowledge-packs
+search roots and associated with a game by the `game_id` declared in their
+manifest:
 
 ```text
-companion/games/<game>/knowledge/
+knowledge_packs/<pack-id>/manifest.toml + corpus.jsonl + NOTICE.md
+%LOCALAPPDATA%\GameSage\knowledge-packs\<pack-id>\...
 ```
 
-GameSage will eventually use both:
-
-1. structured game data;
-2. searchable documents/guides.
+The pack loader/registry lives under `companion/knowledge/packs/`; the
+public format specification is `docs/knowledge-packs-v1.md`. Game
+adapters do not own knowledge packs. Packs must remain declarative data —
+the loader never executes pack content.
 
 Do not immediately introduce a vector database.
 

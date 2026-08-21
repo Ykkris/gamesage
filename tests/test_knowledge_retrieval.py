@@ -109,11 +109,11 @@ class TestRelevanceGate:
 
     def test_relevant_rare_single_term_query_still_works(self):
         # A distinctive single term must clear the floor on the real corpus.
-        from companion.games.witcher3.knowledge.sources import load_corpus
+        from companion.knowledge.packs.registry import KnowledgePackRegistry
 
-        hits = retrieve("vesemir", load_corpus())
+        hits = retrieve("vesemir", KnowledgePackRegistry().chunks_for_game("witcher3"))
 
-        assert hits[0].chunk.id == "witcher3-character-vesemir"
+        assert hits[0].chunk.id == "witcher3:character:vesemir:overview"
 
     def test_relevant_distinctive_term_query_still_works(self):
         assert retrieve("griffin", CORPUS)[0].chunk.id == "a-griffin"
@@ -122,22 +122,22 @@ class TestRelevanceGate:
         assert retrieve("spaceship engine village", CORPUS, min_score=0) != []
 
     def test_witcher3_corpus_preserves_good_queries(self):
-        from companion.games.witcher3.knowledge.sources import load_corpus
+        from companion.knowledge.packs.registry import KnowledgePackRegistry
 
-        corpus = load_corpus()
+        corpus = KnowledgePackRegistry().chunks_for_game("witcher3")
         assert (
             retrieve("How do Witcher Senses help me investigate tracks?", corpus)[0].chunk.id
-            == "witcher3-mechanic-witcher-senses"
+            == "witcher3:mechanic:witcher-senses:overview"
         )
         assert (
             retrieve("griffin attacking travelers", corpus)[0].chunk.id
-            == "witcher3-quest-beast-of-white-orchard"
+            == "witcher3:quest:beast-of-white-orchard:overview"
         )
 
     def test_witcher3_corpus_rejects_irrelevant_query(self):
-        from companion.games.witcher3.knowledge.sources import load_corpus
+        from companion.knowledge.packs.registry import KnowledgePackRegistry
 
-        assert retrieve("How do I repair a spaceship?", load_corpus()) == []
+        assert retrieve("How do I repair a spaceship?", KnowledgePackRegistry().chunks_for_game("witcher3")) == []
 
 
 class TestHasAnyTerm:

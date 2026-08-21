@@ -7,17 +7,19 @@ How to add support for a new game to GameSage. The Witcher 3
 
 A game is represented by a `GameAdapter` (see `companion/games/base.py`):
 
-| Member               | Purpose                                                  |
-| -------------------- | -------------------------------------------------------- |
-| `id`                 | Stable machine id, e.g. `"witcher3"`                     |
-| `display_name`       | Human name; used as vision context and in the UI         |
-| `detect_window()`    | Detect the game's visible window                         |
-| `save_capture()`     | Save a capture with the game's file naming               |
-| `load_knowledge_corpus()` | The game's local knowledge chunks (may be empty)     |
+| Member            | Purpose                                                  |
+| ----------------- | -------------------------------------------------------- |
+| `id`              | Stable machine id, e.g. `"witcher3"`                     |
+| `display_name`    | Human name; used as vision context and in the UI         |
+| `detect_window()` | Detect the game's visible window                         |
+| `save_capture()`  | Save a capture with the game's file naming               |
 
 Adapters compose their own rules with the generic layers; they do **not**
 reimplement screen capture (GDI/mss lives in `companion/capture/`) or
-retrieval (BM25 lives in `companion/knowledge/`).
+retrieval (BM25 lives in `companion/knowledge/`). Knowledge is not part
+of the adapter: installed Knowledge Packs associate with a game through
+the `game_id` declared in their manifest (see
+`docs/knowledge-packs-v1.md` and `companion/knowledge/packs/`).
 
 ## Steps
 
@@ -29,12 +31,12 @@ retrieval (BM25 lives in `companion/knowledge/`).
    `find_game_window(...)` in `companion/capture/window_detection.py`. See
    `witcher3/detection.py`.
 
-3. **Expose a knowledge loader.** Put corpus entries (Markdown files with a
-   `gamesage-knowledge` metadata block) under
-   `companion/games/<game_id>/knowledge/corpus/` and expose a cached
-   loader returning `KnowledgeChunk`s. See
-   `witcher3/knowledge/sources.py`. Preserve source/license metadata and
-   spoiler hints; write original summaries rather than copying wikis.
+3. **Knowledge comes from packs, not the adapter.** A new game needs no
+   knowledge to ship (analysis degrades gracefully to vision-only). To
+   provide starter knowledge, author a Knowledge Pack targeting the new
+   `game_id` — see `docs/knowledge-packs-v1.md`. Preserve source/license
+   metadata and spoiler hints; write original summaries rather than
+   copying wikis.
 
 4. **Implement the adapter.** A small class satisfying `GameAdapter` that
    delegates to the modules above. See `witcher3/adapter.py`.

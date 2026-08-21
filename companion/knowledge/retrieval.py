@@ -72,7 +72,7 @@ def retrieve(
     if not query_terms or not chunks:
         return []
 
-    documents = [tokenize(chunk.title) * 2 + tokenize(chunk.text) for chunk in chunks]
+    documents = [_document_terms(chunk) for chunk in chunks]
     total = len(documents)
     lengths = [len(doc) for doc in documents]
     average_length = sum(lengths) / total
@@ -101,8 +101,23 @@ def retrieve(
     return [RetrievalHit(chunks[index], score) for score, _, index in scored[:limit]]
 
 
+def _document_terms(chunk: KnowledgeChunk) -> list[str]:
+    """Searchable tokens for a chunk.
+
+    Title and aliases (localized alternate names) are boosted equally so a
+    French interface name can find an English record; tags match at normal
+    weight.
+    """
+    tokens = tokenize(chunk.title) * 2
+    if chunk.aliases:
+        tokens += tokenize(" ".join(chunk.aliases)) * 2
+    if chunk.tags:
+        tokens += tokenize(" ".join(chunk.tags))
+    return tokens + tokenize(chunk.text)
+
+
 def has_any_term(chunk: KnowledgeChunk, terms: Sequence[str]) -> bool:
-    """Whether ``chunk`` (title or text) contains any of ``terms``.
+    """Whether ``chunk`` contains any of ``terms`` in its searchable fields.
 
     ``terms`` must already be tokenized (see :func:`tokenize`). Used to
     anchor retrieval results to a specific question so that scene context
@@ -110,7 +125,7 @@ def has_any_term(chunk: KnowledgeChunk, terms: Sequence[str]) -> bool:
     """
     if not terms:
         return True
-    chunk_terms = set(tokenize(chunk.title)) | set(tokenize(chunk.text))
+    chunk_terms = set(_document_terms(chunk))
     return any(term in chunk_terms for term in terms)
 
 
