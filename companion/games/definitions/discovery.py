@@ -18,10 +18,10 @@ from pathlib import Path
 
 from .schema import (
     GAME_FILENAME,
-    CompatibilityError,
     DefinitionError,
     GameDefinition,
     SchemaVersionError,
+    compatibility_problem,
     parse_game_definition_file,
 )
 
@@ -53,12 +53,20 @@ def default_definition_roots(env: dict[str, str] | None = None) -> tuple[Path, .
 
 @dataclass(frozen=True)
 class DefinitionStatus:
-    """Structured report about one discovered definition (future-UI ready)."""
+    """Structured report about one discovered definition (future-UI ready).
+
+    Metadata fields are None when the definition could not be parsed far
+    enough to know them; values are never fabricated.
+    """
 
     definition_id: str
     status: str  # loaded | invalid | incompatible | conflict
     message: str
     path: str
+    game_id: str | None = None
+    display_name: str | None = None
+    version: str | None = None
+    author: str | None = None
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,7 @@ class DefinitionProblem:
     message: str
     directory: Path
     definition_id: str
+    definition: GameDefinition | None = None
 
 
 def load_definition(directory: Path) -> LoadedDefinition | DefinitionProblem:
@@ -99,7 +108,7 @@ def load_definition(directory: Path) -> LoadedDefinition | DefinitionProblem:
         )
     try:
         definition = parse_game_definition_file(definition_path)
-    except (SchemaVersionError, CompatibilityError) as error:
+    except SchemaVersionError as error:
         return DefinitionProblem(
             status=STATUS_INCOMPATIBLE,
             message=str(error),
@@ -113,7 +122,28 @@ def load_definition(directory: Path) -> LoadedDefinition | DefinitionProblem:
             directory=directory,
             definition_id=directory.name,
         )
+    incompatibility = compatibility_problem(definition)
+    if incompatibility is not None:
+        # Keep the parsed definition so status reports retain its metadata.
+        return DefinitionProblem(
+            status=STATUS_INCOMPATIBLE,
+            message=incompatibility,
+            directory=directory,
+            definition_id=definition.definition_id,
+            definition=definition,
+        )
     return LoadedDefinition(definition=definition, directory=directory)
+
+
+def _metadata_fields(definition: GameDefinition | None) -> dict:
+    if definition is None:
+        return {}
+    return {
+        "game_id": definition.id,
+        "display_name": definition.display_name,
+        "version": definition.version,
+        "author": definition.author,
+    }
 
 
 def discover_definitions(
@@ -146,11 +176,16 @@ def discover_definitions(
         if isinstance(result, DefinitionProblem):
             statuses.append(
                 DefinitionStatus(
-                    result.definition_id, result.status, result.message, str(directory)
+                    result.definition_id,
+                    result.status,
+                    result.message,
+                    str(directory),
+                    **_metadata_fields(result.definition),
                 )
             )
             continue
         definition = result.definition
+        metadata = _metadata_fields(definition)
         if definition.definition_id in seen_definition_ids:
             statuses.append(
                 DefinitionStatus(
@@ -159,6 +194,7 @@ def discover_definitions(
                     f"duplicate definition id {definition.definition_id!r} is already "
                     "installed; this copy is ignored.",
                     str(directory),
+                    **metadata,
                 )
             )
             continue
@@ -171,6 +207,7 @@ def discover_definitions(
                     "native game; native adapters take precedence and this "
                     "definition is ignored.",
                     str(directory),
+                    **metadata,
                 )
             )
             continue
@@ -182,6 +219,7 @@ def discover_definitions(
                     f"another definition already provides game id {definition.id!r}; "
                     "this definition is ignored.",
                     str(directory),
+                    **metadata,
                 )
             )
             continue
@@ -194,6 +232,7 @@ def discover_definitions(
                 STATUS_LOADED,
                 f"game '{definition.id}' ({definition.display_name})",
                 str(directory),
+                **metadata,
             )
         )
 

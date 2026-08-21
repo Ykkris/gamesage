@@ -22,6 +22,7 @@ from companion.games.definitions.discovery import (
     default_definition_roots,
     discover_definitions,
 )
+from companion.games.definitions.schema import GameDefinition
 from companion.games.witcher3.adapter import WITCHER3_GAME
 
 #: Game used when no explicit id is supplied (v0.1 default).
@@ -95,3 +96,8 @@ def game_origin(game_id: str | None = None) -> str:
 def definition_statuses() -> tuple[DefinitionStatus, ...]:
     """Structured reports for all discovered Game Definitions."""
     return _declarative()[1]
+
+
+def loaded_definitions() -> tuple["GameDefinition", ...]:
+    """Validated definitions backing the active community games."""
+    return tuple(adapter.definition for adapter in _declarative()[0])

@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import CommunityContent from "./CommunityContent";
 import "./App.css";
+
+type View = "assistant" | "community";
 
 type GameInfo = {
   id: string;
@@ -141,6 +144,35 @@ async function requestAnalysis(
 }
 
 function App() {
+  const [view, setView] = useState<View>("assistant");
+
+  return (
+    <main className="container">
+      <nav className="view-nav" aria-label="Main views">
+        <button
+          className={view === "assistant" ? "nav-active" : ""}
+          onClick={() => setView("assistant")}
+        >
+          Assistant
+        </button>
+        <button
+          className={view === "community" ? "nav-active" : ""}
+          onClick={() => setView("community")}
+        >
+          Community Content
+        </button>
+      </nav>
+
+      {view === "community" ? (
+        <CommunityContent onClosed={() => setView("assistant")} />
+      ) : (
+        <AssistantView />
+      )}
+    </main>
+  );
+}
+
+function AssistantView() {
   const [games, setGames] = useState<GamesState>({ status: "loading" });
   const selectedGameId = games.status === "ready" ? games.selectedId : null;
   // Mirrored for the global-shortcut handler, which must not go stale.
@@ -228,7 +260,7 @@ function App() {
   }
 
   return (
-    <main className="container">
+    <>
       <header className="header">
         <h1>GameSage</h1>
         {games.status === "loading" && (
@@ -353,7 +385,7 @@ function App() {
           </p>
         )}
       </section>
-    </main>
+    </>
   );
 }
 

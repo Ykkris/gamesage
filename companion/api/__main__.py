@@ -3,6 +3,7 @@
 Usage:
 
     python -m companion.api games
+    python -m companion.api community-content
     python -m companion.api capture [--game ID] [--screenshots-dir PATH]
     python -m companion.api analyze --image PATH --question TEXT [--game ID]
 
@@ -24,6 +25,7 @@ from pathlib import Path
 
 from .analyze_json import run_analysis
 from .capture_json import run_capture
+from .community_json import run_community_content
 from .games_json import run_games
 
 
@@ -58,6 +60,7 @@ def main(
     run_capture_command: Callable[[Path | None, str | None], dict] = run_capture,
     run_analyze_command: Callable[[Path, str, str | None], dict] = run_analysis,
     run_games_command: Callable[[], dict] = run_games,
+    run_community_command: Callable[[], dict] = run_community_content,
 ) -> int:
     load_env_file(Path(".env"))
 
@@ -69,6 +72,11 @@ def main(
 
     games = subcommands.add_parser(
         "games", help="list registered games; print a JSON envelope"
+    )
+
+    community = subcommands.add_parser(
+        "community-content",
+        help="report games and all discovered community content; print a JSON envelope",
     )
 
     capture = subcommands.add_parser(
@@ -100,6 +108,8 @@ def main(
     args = parser.parse_args(argv)
     if args.command == "games":
         payload = run_games_command()
+    elif args.command == "community-content":
+        payload = run_community_command()
     elif args.command == "capture":
         payload = run_capture_command(args.screenshots_dir, args.game)
     else:

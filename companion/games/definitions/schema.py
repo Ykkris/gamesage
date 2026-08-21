@@ -58,8 +58,23 @@ class SchemaVersionError(DefinitionError):
     """The definition declares an unsupported schema version."""
 
 
-class CompatibilityError(DefinitionError):
-    """The definition declares GameSage version bounds not satisfied."""
+def compatibility_problem(definition: GameDefinition) -> str | None:
+    """Compatibility diagnostic for declared GameSage version bounds."""
+    minimum = definition.gamesage_min_version
+    maximum = definition.gamesage_max_version
+    if not minimum and not maximum:
+        return None
+    try:
+        if not version_within_bounds(GAMESAGE_VERSION, minimum, maximum):
+            return (
+                "requires GameSage"
+                + (f" >= {minimum}" if minimum else "")
+                + (f" <= {maximum}" if maximum else "")
+                + f" (this is {GAMESAGE_VERSION})."
+            )
+    except ValueError as error:
+        return f"unreadable version bound: {error}"
+    return None
 
 
 @dataclass(frozen=True)
@@ -154,10 +169,6 @@ def parse_game_definition_file(path: Path) -> GameDefinition:
             f"{', '.join(TITLE_MATCH_MODES)}."
         )
 
-    bounds_problem = _bounds_problem(data)
-    if bounds_problem:
-        raise CompatibilityError(bounds_problem)
-
     return GameDefinition(
         schema_version=schema_version,
         id=game_id,
@@ -175,24 +186,6 @@ def parse_game_definition_file(path: Path) -> GameDefinition:
         gamesage_min_version=data["gamesage_min_version"],
         gamesage_max_version=data["gamesage_max_version"],
     )
-
-
-def _bounds_problem(data: dict) -> str | None:
-    minimum = data["gamesage_min_version"]
-    maximum = data["gamesage_max_version"]
-    if not minimum and not maximum:
-        return None
-    try:
-        if not version_within_bounds(GAMESAGE_VERSION, minimum, maximum):
-            return (
-                "requires GameSage"
-                + (f" >= {minimum}" if minimum else "")
-                + (f" <= {maximum}" if maximum else "")
-                + f" (this is {GAMESAGE_VERSION})."
-            )
-    except ValueError as error:
-        return f"unreadable version bound: {error}"
-    return None
 
 
 def _string_tuple(data: dict, field: str) -> tuple[str, ...]:

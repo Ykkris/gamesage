@@ -160,6 +160,12 @@ python -m tools.games validate path/to/your.definition
 python -m tools.games inspect path/to/your.definition
 ```
 
+## Checking installation status
+
+Installed definitions — including invalid, incompatible, or conflicting
+ones — are visible in the desktop app under **Community Content**, or
+machine-readably via `python -m companion.api community-content`.
+
 ## Example: a safe manual test
 
 A temporary definition using an ordinary Windows application proves the

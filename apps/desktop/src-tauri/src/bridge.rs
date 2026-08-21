@@ -407,6 +407,122 @@ pub async fn supported_games() -> Result<GamesResponse, BridgeError> {
         })?
 }
 
+/// One supported game in the Community Content report.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CommunityGame {
+    pub id: String,
+    pub display_name: String,
+    pub origin: String,
+    #[serde(default)]
+    pub definition_id: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+}
+
+/// One discovered Game Definition with its status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GameDefinitionEntry {
+    pub definition_id: String,
+    pub status: String,
+    pub message: String,
+    #[serde(default)]
+    pub game_id: Option<String>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+}
+
+/// One discovered Knowledge Pack with its status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct KnowledgePackEntry {
+    pub pack_id: String,
+    pub status: String,
+    pub message: String,
+    #[serde(default)]
+    pub game_id: Option<String>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub languages: Option<Vec<String>>,
+    #[serde(default)]
+    pub record_count: Option<u32>,
+}
+
+/// Read-only Community Content report (games, definitions, packs).
+#[derive(Debug, Clone, Serialize)]
+pub struct CommunityContent {
+    pub games: Vec<CommunityGame>,
+    pub game_definitions: Vec<GameDefinitionEntry>,
+    pub knowledge_packs: Vec<KnowledgePackEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityPayload {
+    games: Vec<CommunityGame>,
+    game_definitions: Vec<GameDefinitionEntry>,
+    knowledge_packs: Vec<KnowledgePackEntry>,
+}
+
+/// Parse the JSON envelope printed by `python -m companion.api community-content`.
+pub fn parse_community_envelope(stdout: &str) -> Result<CommunityContent, BridgeError> {
+    let value: Value = serde_json::from_str(stdout.trim()).map_err(|error| {
+        BridgeError::new(
+            "invalid_backend_response",
+            format!("The GameSage core returned invalid JSON: {error}."),
+        )
+    })?;
+    if value.get("ok").and_then(Value::as_bool) != Some(true) {
+        return Err(BridgeError::new(
+            "invalid_backend_response",
+            "The GameSage core community-content response was malformed.".to_string(),
+        ));
+    }
+    let payload: CommunityPayload = serde_json::from_value(value).map_err(|error| {
+        BridgeError::new(
+            "invalid_backend_response",
+            format!("The GameSage core community-content response was malformed: {error}."),
+        )
+    })?;
+    Ok(CommunityContent {
+        games: payload.games,
+        game_definitions: payload.game_definitions,
+        knowledge_packs: payload.knowledge_packs,
+    })
+}
+
+fn community_args() -> Vec<String> {
+    ["-m", "companion.api", "community-content"]
+        .iter()
+        .map(|arg| arg.to_string())
+        .collect()
+}
+
+fn community_via_python() -> Result<CommunityContent, BridgeError> {
+    let stdout = run_python(&community_args())?;
+    parse_community_envelope(&stdout)
+}
+
+#[tauri::command]
+pub async fn community_content() -> Result<CommunityContent, BridgeError> {
+    tauri::async_runtime::spawn_blocking(community_via_python)
+        .await
+        .map_err(|error| {
+            BridgeError::new(
+                "backend_task_failed",
+                format!("The community-content task could not be completed: {error}."),
+            )
+        })?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,6 +769,64 @@ mod tests {
         );
         assert_eq!(
             parse_games_envelope(r#"{"ok": true, "games": []}"#)
+                .unwrap_err()
+                .code,
+            "invalid_backend_response"
+        );
+    }
+
+    #[test]
+    fn parses_community_content_envelope() {
+        let stdout = r#"{
+            "ok": true,
+            "games": [
+                {"id": "witcher3", "display_name": "The Witcher 3: Wild Hunt", "origin": "native"},
+                {"id": "demo_game", "display_name": "Demo Game", "origin": "community",
+                 "definition_id": "author.demo.windows", "version": "1.0.0", "author": "Author"}
+            ],
+            "game_definitions": [
+                {"definition_id": "author.demo.windows", "status": "loaded", "message": "ok",
+                 "game_id": "demo_game", "display_name": "Demo Game", "version": "1.0.0", "author": "Author"},
+                {"definition_id": "broken.dir", "status": "invalid",
+                 "message": "corpus.jsonl line 2: invalid JSON", "game_id": null,
+                 "display_name": null, "version": null, "author": null}
+            ],
+            "knowledge_packs": [
+                {"pack_id": "gamesage.witcher3.starter", "status": "loaded",
+                 "message": "5 records", "game_id": "witcher3",
+                 "name": "Starter", "version": "1.0.0", "author": "GameSage",
+                 "languages": ["en"], "record_count": 5},
+                {"pack_id": "broken.pack", "status": "invalid",
+                 "message": "corpus.jsonl line 182: missing required field(s): text",
+                 "game_id": "witcher3", "name": "Broken", "version": "2.0.0",
+                 "author": "X", "languages": null, "record_count": null}
+            ]
+        }"#;
+        let content = parse_community_envelope(stdout).expect("valid envelope");
+        assert_eq!(content.games.len(), 2);
+        assert_eq!(content.games[1].origin, "community");
+        assert_eq!(content.games[1].definition_id.as_deref(), Some("author.demo.windows"));
+        assert_eq!(content.game_definitions.len(), 2);
+        assert_eq!(content.game_definitions[1].status, "invalid");
+        assert!(content.game_definitions[1].game_id.is_none());
+        assert_eq!(content.knowledge_packs.len(), 2);
+        assert_eq!(content.knowledge_packs[0].record_count, Some(5));
+        assert_eq!(content.knowledge_packs[0].languages, Some(vec!["en".to_string()]));
+        assert!(content.knowledge_packs[1].record_count.is_none());
+    }
+
+    #[test]
+    fn community_content_rejects_invalid_payloads() {
+        assert_eq!(
+            parse_community_envelope("not json").unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_community_envelope(r#"{"ok": false}"#).unwrap_err().code,
+            "invalid_backend_response"
+        );
+        assert_eq!(
+            parse_community_envelope(r#"{"ok": true, "games": []}"#)
                 .unwrap_err()
                 .code,
             "invalid_backend_response"

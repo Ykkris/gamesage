@@ -60,12 +60,22 @@ def default_pack_roots(env: dict[str, str] | None = None) -> tuple[Path, ...]:
 
 @dataclass(frozen=True)
 class PackStatus:
-    """Structured report about one discovered pack (future-UI ready)."""
+    """Structured report about one discovered pack (future-UI ready).
+
+    Metadata fields are None when the manifest could not be parsed far
+    enough to know them; values are never fabricated.
+    """
 
     pack_id: str
     status: str  # loaded | invalid | incompatible | conflict
     message: str
     path: str
+    game_id: str | None = None
+    name: str | None = None
+    version: str | None = None
+    author: str | None = None
+    languages: tuple[str, ...] | None = None
+    record_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -89,6 +99,7 @@ class PackProblem:
     message: str
     directory: Path
     pack_id: str
+    manifest: PackManifest | None = None
 
 
 def load_pack(directory: Path) -> LoadedPack | PackProblem:
@@ -128,6 +139,7 @@ def load_pack(directory: Path) -> LoadedPack | PackProblem:
             message=incompatibility,
             directory=directory,
             pack_id=manifest.id,
+            manifest=manifest,
         )
     try:
         records = load_corpus_file(directory / CORPUS_FILENAME, manifest)
@@ -137,6 +149,7 @@ def load_pack(directory: Path) -> LoadedPack | PackProblem:
             message=str(error),
             directory=directory,
             pack_id=manifest.id,
+            manifest=manifest,
         )
     return LoadedPack(manifest=manifest, directory=directory, records=records)
 
@@ -182,7 +195,13 @@ class KnowledgePackRegistry:
             result = load_pack(directory)
             if isinstance(result, PackProblem):
                 self._statuses.append(
-                    PackStatus(result.pack_id, result.status, result.message, str(directory))
+                    PackStatus(
+                        result.pack_id,
+                        result.status,
+                        result.message,
+                        str(directory),
+                        **_manifest_metadata(result.manifest),
+                    )
                 )
                 continue
             if result.manifest.id in seen_pack_ids:
@@ -193,6 +212,8 @@ class KnowledgePackRegistry:
                         f"duplicate pack id {result.manifest.id!r} is already installed; "
                         "this copy is ignored.",
                         str(directory),
+                        **_manifest_metadata(result.manifest),
+                        record_count=len(result.records),
                     )
                 )
                 continue
@@ -204,6 +225,8 @@ class KnowledgePackRegistry:
                     STATUS_LOADED,
                     f"{len(result.records)} records for game '{result.manifest.game_id}'",
                     str(directory),
+                    **_manifest_metadata(result.manifest),
+                    record_count=len(result.records),
                 )
             )
 
@@ -225,6 +248,8 @@ class KnowledgePackRegistry:
                             f"record id {collisions[0]!r} already provided by another pack "
                             f"for game '{game_id}'; this pack is ignored.",
                             str(pack.directory),
+                            **_manifest_metadata(pack.manifest),
+                            record_count=len(pack.records),
                         )
                     )
                     continue
@@ -243,3 +268,15 @@ class KnowledgePackRegistry:
                     f"{status.message} [{status.path}]",
                     file=sys.stderr,
                 )
+
+
+def _manifest_metadata(manifest: PackManifest | None) -> dict:
+    if manifest is None:
+        return {}
+    return {
+        "game_id": manifest.game_id,
+        "name": manifest.name,
+        "version": manifest.version,
+        "author": manifest.author,
+        "languages": manifest.languages,
+    }

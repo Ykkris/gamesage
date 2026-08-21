@@ -179,6 +179,13 @@ python -m tools.knowledge query path/to/your.pack "griffin attacks travelers"
 `validate` prints `OK` with the record count, or the reason and corpus
 line number on failure.
 
+## Checking installation status
+
+Installed packs — including broken or conflicting ones — are visible in
+the desktop app under **Community Content**, or machine-readably via
+`python -m companion.api community-content`, which reports every
+discovered pack with its status and diagnostic.
+
 ## Reference pack
 
 `knowledge_packs/gamesage.witcher3.starter/` in the GameSage repository

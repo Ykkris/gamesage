@@ -169,3 +169,127 @@ body {
   padding: 0 0.4rem;
   cursor: pointer;
 }
+
+/* Community Content view */
+
+.view-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+  padding-bottom: 0.5rem;
+}
+
+.view-nav button {
+  font-size: 0.95rem;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.nav-active {
+  font-weight: 600;
+  border-color: rgba(128, 128, 128, 0.5) !important;
+}
+
+.community-content h2 {
+  margin: 0 0 0.75rem;
+}
+
+.community-content h3 {
+  margin: 1.5rem 0 0.5rem;
+}
+
+.community-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.pack-group h4 {
+  margin: 1rem 0 0.35rem;
+}
+
+.content-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.content-entry {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+}
+
+.entry-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.entry-title {
+  font-weight: 600;
+}
+
+.entry-meta {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  word-break: break-all;
+}
+
+.status-badge,
+.origin-badge {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.status-loaded {
+  color: #2c7a4b;
+}
+
+.status-invalid {
+  color: #b34040;
+}
+
+.status-incompatible {
+  color: #a06a1f;
+}
+
+.status-conflict {
+  color: #8a5a9e;
+}
+
+.origin-native {
+  color: #3b7ea1;
+}
+
+.origin-community {
+  color: #2c7a4b;
+}
+
+.diagnostic {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  opacity: 0.8;
+  border-left: 3px solid currentColor;
+  padding-left: 0.5rem;
+}
+
+.muted {
+  opacity: 0.7;
+  font-size: 0.9rem;
+}
+
+.back-button {
+  margin-top: 1.5rem;
+  cursor: pointer;
+}
