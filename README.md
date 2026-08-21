@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/branding/gamesage-logo.png" alt="GameSage" width="220">
+  <img src="docs/assets/gamesage-logo.png" alt="GameSage" width="220">
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@ scope: GameSage is built to become multi-game and community-extensible.
 
 <p align="center">
   <img
-    src="docs/assets/screenshots/assistant-witcher3.png"
+    src="docs/assets/assistant-witcher3.png"
     alt="GameSage Assistant analyzing The Witcher 3"
     width="900"
   >
@@ -86,7 +86,7 @@ automatically, whether the game is native or community-defined.
 
 <p align="center">
   <img
-    src="docs/assets/screenshots/community-content.png"
+    src="docs/assets/community-content.png"
     alt="GameSage Community Content view"
     width="900"
   >
