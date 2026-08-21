@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/gamesage-logo.svg" alt="GameSage" width="220">
+  <img src="docs/assets/gamesage-logo.svg" alt="GameSage" width="800">
 </p>
 
 <p align="center">
