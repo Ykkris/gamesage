@@ -52,6 +52,8 @@ answered with the knowledge installed for that game, never another game's.
   (including local models), or the Z.AI general API
 - Local BM25 knowledge retrieval from installed Knowledge Packs, with
   Sources shown under answers
+- Conversational session context: recent questions and answers give
+  follow-up questions continuity, per game, runtime-only
 - Read-only **Community Content** view with statuses and diagnostics for
   installed games, Game Definitions, and Knowledge Packs
 

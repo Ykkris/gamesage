@@ -99,6 +99,29 @@ body {
   margin-top: 2rem;
 }
 
+.context-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.context-indicator {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+
+.clear-context-button {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+}
+
+.clear-context-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .ask-form {
   display: flex;
   gap: 0.5rem;

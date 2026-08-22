@@ -378,7 +378,7 @@ class TestUnifiedRegistryIntegration:
         class FakeProvider:
             id = "fake"
 
-            def analyze(self, image_path, question, *, context=None, knowledge=None):
+            def analyze(self, image_path, question, *, context=None, knowledge=None, session_context=None):
                 return AnalysisResult("answer", "fake", "m")
 
         payload = run_analysis(
@@ -462,7 +462,7 @@ class TestCommunityDefinitionWithKnowledge:
             def __init__(self):
                 self.contexts = []
 
-            def analyze(self, image_path, question, *, context=None, knowledge=None):
+            def analyze(self, image_path, question, *, context=None, knowledge=None, session_context=None):
                 self.contexts.append(context)
                 return AnalysisResult("answer", "fake", "m")
 

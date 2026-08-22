@@ -27,6 +27,7 @@ from companion.vision.http import UrllibTransport
 from companion.vision.models import AnalysisResult
 from companion.vision.provider import (
     KNOWLEDGE_SYSTEM_PROMPT,
+    SESSION_CONTEXT_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     HttpTransport,
 )
@@ -84,6 +85,7 @@ class ChatCompletionsProvider:
         *,
         context: str | None = None,
         knowledge: Sequence[str] | None = None,
+        session_context: str | None = None,
     ) -> AnalysisResult:
         image_data_url = load_image_data_url(image_path)
         payload = build_multimodal_payload(
@@ -93,6 +95,7 @@ class ChatCompletionsProvider:
             context,
             payload_extensions=self._config.payload_extensions,
             knowledge=knowledge,
+            session_context=session_context,
         )
         status, body = self._request(payload)
         answer = extract_answer(status, body, label=self._config.error_label)
@@ -135,16 +138,28 @@ def build_multimodal_payload(
     *,
     payload_extensions: Mapping[str, object] | None = None,
     knowledge: Sequence[str] | None = None,
+    session_context: str | None = None,
 ) -> dict[str, object]:
     """Build the image + text chat-completions payload.
 
-    When ``knowledge`` passages are given, they ride in a second system
-    message carrying the screenshot-precedence instructions.
+    ``session_context`` and ``knowledge`` ride in separate system messages
+    with their own authority wording, keeping conversational continuity,
+    current-screenshot evidence, and grounded knowledge conceptually
+    distinct for the model.
     """
     system_content = SYSTEM_PROMPT
     if context:
         system_content += f"\nGame context: {context}."
     messages: list[dict[str, object]] = [{"role": "system", "content": system_content}]
+    if session_context:
+        messages.append(
+            {
+                "role": "system",
+                "content": SESSION_CONTEXT_SYSTEM_PROMPT
+                + "\n\n"
+                + session_context,
+            }
+        )
     if knowledge:
         messages.append(
             {

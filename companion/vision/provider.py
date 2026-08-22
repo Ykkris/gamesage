@@ -40,6 +40,21 @@ KNOWLEDGE_SYSTEM_PROMPT = (
     "insufficient instead of guessing."
 )
 
+#: Additional instructions used when recent session context accompanies a
+#: request. Prior GameSage answers are previous model output — the wording
+#: keeps them from being treated as guaranteed facts.
+SESSION_CONTEXT_SYSTEM_PROMPT = (
+    "Recent conversation with the player from this session is provided "
+    "below.\n"
+    "Use it only to resolve references and continuity, for example what a "
+    "phrase like 'her' or 'that quest' refers to.\n"
+    "Earlier GameSage replies are previous model output, not guaranteed "
+    "facts.\n"
+    "The current screenshot is authoritative for what is visible now; do "
+    "not claim something is visible because it appeared earlier.\n"
+    "Retrieved game knowledge remains the preferred source for game facts."
+)
+
 
 class VisionProvider(Protocol):
     """A provider that can answer questions about a screenshot image."""
@@ -53,12 +68,15 @@ class VisionProvider(Protocol):
         *,
         context: str | None = None,
         knowledge: Sequence[str] | None = None,
+        session_context: str | None = None,
     ) -> AnalysisResult:
         """Answer ``question`` about the image at ``image_path``.
 
         ``context`` optionally names the game shown in the screenshot.
         ``knowledge`` optionally holds pre-formatted reference passages to
-        ground the answer in retrieved game knowledge.
+        ground the answer in retrieved game knowledge. ``session_context``
+        optionally holds the formatted recent-turn block for conversational
+        continuity.
         """
         ...
 

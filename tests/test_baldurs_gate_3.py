@@ -150,7 +150,7 @@ class FakeProvider:
     def __init__(self):
         self.calls = []
 
-    def analyze(self, image_path, question, *, context=None, knowledge=None):
+    def analyze(self, image_path, question, *, context=None, knowledge=None, session_context=None):
         self.calls.append((question, context, knowledge))
         return AnalysisResult("scene", "fake", "m")
 

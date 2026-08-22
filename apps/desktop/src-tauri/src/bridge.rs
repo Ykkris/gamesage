@@ -134,29 +134,47 @@ pub fn parse_envelope(stdout: &str) -> Result<CaptureResponse, BridgeError> {
     }
 }
 
-/// Spawn the Python core CLI with ``args`` and return its stdout.
-fn run_python(args: &[String]) -> Result<String, BridgeError> {
-    let python = python_executable();
-    let mut command = Command::new(&python);
-    command.args(args).current_dir(backend_working_dir());
-    // Avoid flashing a console window alongside the GUI app.
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
+/// Run a subprocess with fully explicit stdio:
+///
+/// - stdout and stderr always piped (captured for the JSON envelope);
+/// - stdin piped only when a payload must be written, else null;
+/// - the stdin pipe is closed after writing so the child sees EOF.
+fn execute_with_optional_stdin(
+    mut command: Command,
+    stdin_data: Option<String>,
+) -> Result<std::process::Output, String> {
+    command.stdin(if stdin_data.is_some() {
+        std::process::Stdio::piped()
+    } else {
+        std::process::Stdio::null()
+    });
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("could not start the process: {error}"))?;
+    if let Some(data) = stdin_data {
+        use std::io::Write;
+        let stdin = child
+            .stdin
+            .as_mut()
+            .expect("stdin is piped when a payload exists");
+        stdin
+            .write_all(data.as_bytes())
+            .map_err(|error| format!("could not write the stdin payload: {error}"))?;
     }
+    // Dropping stdin closes the pipe so Python sees EOF after the payload.
+    drop(child.stdin.take());
 
-    let output = command.output().map_err(|error| {
-        BridgeError::new(
-            "python_invocation_failed",
-            format!(
-                "Could not start the GameSage Python core at {}: {error}.",
-                python.display()
-            ),
-        )
-    })?;
+    child
+        .wait_with_output()
+        .map_err(|error| format!("could not collect the process output: {error}"))
+}
 
+/// Extract the captured stdout, logging stderr and failing clearly when
+/// the core produced no machine-readable response.
+fn stdout_or_backend_error(output: std::process::Output) -> Result<String, BridgeError> {
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
     if !stderr.is_empty() {
@@ -181,6 +199,42 @@ fn run_python(args: &[String]) -> Result<String, BridgeError> {
     Ok(stdout)
 }
 
+/// Spawn the Python core CLI with ``args`` and return its stdout.
+///
+/// ``stdin_data`` optionally writes one structured payload (session
+/// context JSON) to the subprocess; Rust transports it verbatim and never
+/// interprets or formats the conversation.
+fn run_python_with_stdin(
+    args: &[String],
+    stdin_data: Option<String>,
+) -> Result<String, BridgeError> {
+    let python = python_executable();
+    let mut command = Command::new(&python);
+    command.args(args).current_dir(backend_working_dir());
+    // Avoid flashing a console window alongside the GUI app.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = execute_with_optional_stdin(command, stdin_data).map_err(|error| {
+        BridgeError::new(
+            "python_invocation_failed",
+            format!(
+                "Could not run the GameSage Python core at {}: {error}.",
+                python.display()
+            ),
+        )
+    })?;
+    stdout_or_backend_error(output)
+}
+
+fn run_python(args: &[String]) -> Result<String, BridgeError> {
+    run_python_with_stdin(args, None)
+}
+
 fn push_game_arg(args: &mut Vec<String>, game_id: Option<&str>) {
     if let Some(id) = game_id {
         args.push("--game".into());
@@ -197,7 +251,12 @@ fn capture_args(game_id: Option<&str>) -> Vec<String> {
     args
 }
 
-fn analyze_args(image: &str, question: &str, game_id: Option<&str>) -> Vec<String> {
+fn analyze_args(
+    image: &str,
+    question: &str,
+    game_id: Option<&str>,
+    with_session_context: bool,
+) -> Vec<String> {
     let mut args = vec![
         "-m".into(),
         "companion.api".into(),
@@ -208,6 +267,11 @@ fn analyze_args(image: &str, question: &str, game_id: Option<&str>) -> Vec<Strin
         question.into(),
     ];
     push_game_arg(&mut args, game_id);
+    if with_session_context {
+        // The context itself travels as JSON over stdin, not argv.
+        args.push("--context".into());
+        args.push("-".into());
+    }
     args
 }
 
@@ -310,12 +374,35 @@ fn parse_game_error(value: &Value) -> Result<AnalyzeResponse, BridgeError> {
     })
 }
 
+/// One recent conversational turn, transported verbatim to the Python core.
+/// Rust never filters or formats these.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionTurn {
+    pub game_id: String,
+    pub question: String,
+    pub answer: String,
+}
+
 fn analyze_via_python(
     image: String,
     question: String,
     game_id: Option<String>,
+    session_context: Option<Vec<SessionTurn>>,
 ) -> Result<AnalyzeResponse, BridgeError> {
-    let stdout = run_python(&analyze_args(&image, &question, game_id.as_deref()))?;
+    let context_json = session_context
+        .map(|turns| {
+            serde_json::to_string(&turns).map_err(|error| {
+                BridgeError::new(
+                    "invalid_backend_response",
+                    format!("Could not serialize session context: {error}."),
+                )
+            })
+        })
+        .transpose()?;
+    let stdout = run_python_with_stdin(
+        &analyze_args(&image, &question, game_id.as_deref(), context_json.is_some()),
+        context_json,
+    )?;
     parse_analyze_envelope(&stdout)
 }
 
@@ -324,15 +411,18 @@ pub async fn analyze_game(
     image: String,
     question: String,
     game_id: Option<String>,
+    session_context: Option<Vec<SessionTurn>>,
 ) -> Result<AnalyzeResponse, BridgeError> {
-    tauri::async_runtime::spawn_blocking(move || analyze_via_python(image, question, game_id))
-        .await
-        .map_err(|error| {
-            BridgeError::new(
-                "backend_task_failed",
-                format!("The analysis task could not be completed: {error}."),
-            )
-        })?
+    tauri::async_runtime::spawn_blocking(move || {
+        analyze_via_python(image, question, game_id, session_context)
+    })
+    .await
+    .map_err(|error| {
+        BridgeError::new(
+            "backend_task_failed",
+            format!("The analysis task could not be completed: {error}."),
+        )
+    })?
 }
 
 /// Metadata for one registered game.
@@ -687,6 +777,7 @@ mod tests {
             r"D:\shots\witcher 3.png",
             "What quest is this? (spoiler-free)",
             Some("witcher3"),
+            false,
         );
         assert_eq!(
             args,
@@ -731,8 +822,99 @@ mod tests {
 
     #[test]
     fn analyze_args_without_game_omit_flag() {
-        let args = analyze_args("x.png", "q", None);
+        let args = analyze_args("x.png", "q", None, false);
         assert!(!args.contains(&"--game".to_string()));
+        assert!(!args.contains(&"--context".to_string()));
+    }
+
+    #[test]
+    fn analyze_args_with_context_adds_stdin_marker() {
+        let args = analyze_args("x.png", "q", Some("witcher3"), true);
+        let tail = &args[args.len() - 2..];
+        assert_eq!(tail, &["--context".to_string(), "-".to_string()]);
+    }
+
+    #[test]
+    fn session_turns_roundtrip_with_unicode() {
+        let turns = vec![SessionTurn {
+            game_id: "witcher3".to_string(),
+            question: "Et le Seigneur d'Undvik ?".to_string(),
+            answer: "Éminemment.".to_string(),
+        }];
+        let json = serde_json::to_string(&turns).expect("serializes");
+        assert!(json.contains("Undvik"));
+        let parsed: Vec<SessionTurn> = serde_json::from_str(&json).expect("parses");
+        assert_eq!(parsed, turns);
+    }
+
+    // Subprocess regression tests: these exercise the REAL spawn path
+    // (`execute_with_optional_stdin`), which is where a stdout-capture
+    // bug previously escaped the args/parsing-only tests.
+
+    #[cfg(windows)]
+    #[test]
+    fn subprocess_stdout_is_captured_without_stdin_payload() {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "echo gamesage-bridge-ok"]);
+
+        let output = execute_with_optional_stdin(command, None).expect("subprocess runs");
+
+        assert!(output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("gamesage-bridge-ok"),
+            "stdout must be captured when no stdin payload exists"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn subprocess_stdout_is_captured_with_stdin_payload() {
+        // Round-trip through the repository dev Python: it echoes stdin
+        // back on stdout, proving the payload is written AND stdout is
+        // still captured in the stdin path.
+        let python = repo_root().join(".venv").join("Scripts").join("python.exe");
+        if !python.is_file() {
+            eprintln!("skipping: repository .venv python not found");
+            return;
+        }
+        let mut command = Command::new(&python);
+        command.args(["-c", "import sys; sys.stdout.write(sys.stdin.read())"]);
+        let payload = "{\"question\": \"Et le Seigneur d'Undvik ?\", \"answer\": \"Éminemment.\"}";
+
+        let output =
+            execute_with_optional_stdin(command, Some(payload.to_string())).expect("subprocess runs");
+
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            payload,
+            "stdout must be captured and the Unicode stdin payload delivered intact"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exit_zero_with_empty_stdout_yields_backend_error() {
+        // A successful process that prints nothing must produce the
+        // existing diagnostic — not an empty success.
+        let mut command = Command::new("cmd");
+        command.args(["/C", "exit", "0"]);
+
+        let output = execute_with_optional_stdin(command, None).expect("subprocess runs");
+
+        let error = stdout_or_backend_error(output).expect_err("empty stdout must fail");
+        assert_eq!(error.code, "invalid_backend_response");
+        assert!(error.message.contains("without producing a response"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_python_games_call_round_trips_through_the_bridge() {
+        // End-to-end guard on the exact startup call that regressed.
+        let stdout = run_python(&games_args()).expect("games call succeeds");
+        let response = parse_games_envelope(&stdout).expect("valid envelope");
+        assert!(!response.games.is_empty());
+        assert_eq!(response.default_game, "witcher3");
     }
 
     #[test]

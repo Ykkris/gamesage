@@ -7,6 +7,16 @@ import "./App.css";
 
 type View = "assistant" | "community";
 
+/** One recent successful interaction (Session Context v0, runtime-only). */
+type SessionTurn = {
+  game_id: string;
+  question: string;
+  answer: string;
+};
+
+/** Mirrors the authoritative Python bound (newest turns win). */
+const MAX_SESSION_TURNS = 4;
+
 type GameInfo = {
   id: string;
   display_name: string;
@@ -119,13 +129,15 @@ async function requestCapture(gameId: string): Promise<CaptureState> {
 async function requestAnalysis(
   image: string,
   question: string,
-  gameId: string
+  gameId: string,
+  sessionContext: SessionTurn[] | undefined
 ): Promise<AskState> {
   try {
     const response = await invoke<AskSuccess | GameError>("analyze_game", {
       image,
       question,
       gameId,
+      sessionContext,
     });
     if (response.kind === "success") {
       return {
@@ -145,6 +157,20 @@ async function requestAnalysis(
 
 function App() {
   const [view, setView] = useState<View>("assistant");
+  // Session Context v0 lives here (App never unmounts): per-game recent
+  // turns for the current runtime only — never persisted, lost on restart.
+  const [sessionTurns, setSessionTurns] = useState<Record<string, SessionTurn[]>>({});
+
+  function recordSessionTurn(gameId: string, turn: SessionTurn) {
+    setSessionTurns((previous) => {
+      const next = [...(previous[gameId] ?? []), turn].slice(-MAX_SESSION_TURNS);
+      return { ...previous, [gameId]: next };
+    });
+  }
+
+  function clearSessionContext(gameId: string) {
+    setSessionTurns((previous) => ({ ...previous, [gameId]: [] }));
+  }
 
   return (
     <main className="container">
@@ -166,13 +192,25 @@ function App() {
       {view === "community" ? (
         <CommunityContent onClosed={() => setView("assistant")} />
       ) : (
-        <AssistantView />
+        <AssistantView
+          sessionTurns={sessionTurns}
+          onTurnRecorded={recordSessionTurn}
+          onContextCleared={clearSessionContext}
+        />
       )}
     </main>
   );
 }
 
-function AssistantView() {
+function AssistantView({
+  sessionTurns,
+  onTurnRecorded,
+  onContextCleared,
+}: {
+  sessionTurns: Record<string, SessionTurn[]>;
+  onTurnRecorded: (gameId: string, turn: SessionTurn) => void;
+  onContextCleared: (gameId: string) => void;
+}) {
   const [games, setGames] = useState<GamesState>({ status: "loading" });
   const selectedGameId = games.status === "ready" ? games.selectedId : null;
   // Mirrored for the global-shortcut handler, which must not go stale.
@@ -225,8 +263,26 @@ function AssistantView() {
     }
     askInFlight.current = true;
     setAskState({ status: "asking" });
+    const askedQuestion = question.trim();
     try {
-      setAskState(await requestAnalysis(currentImage, question.trim(), capturedGameId));
+      const outcome = await requestAnalysis(
+        currentImage,
+        askedQuestion,
+        capturedGameId,
+        // Only the screenshot owner's recent turns cross the bridge.
+        (sessionTurns[capturedGameId] ?? []).length > 0
+          ? sessionTurns[capturedGameId]
+          : undefined
+      );
+      setAskState(outcome);
+      // Session Context v0: only successful answers become turns.
+      if (outcome.status === "answered") {
+        onTurnRecorded(capturedGameId, {
+          game_id: capturedGameId,
+          question: askedQuestion,
+          answer: outcome.answer,
+        });
+      }
     } finally {
       askInFlight.current = false;
     }
@@ -258,6 +314,12 @@ function AssistantView() {
       setGames({ ...games, selectedId: id });
     }
   }
+
+  // Context indicator follows the same ownership rule as Ask: the
+  // screenshot owner when a capture exists, otherwise the selected game.
+  const contextGameId = capturedGameId ?? selectedGameId;
+  const contextCount =
+    contextGameId !== null ? (sessionTurns[contextGameId] ?? []).length : 0;
 
   return (
     <>
@@ -328,6 +390,19 @@ function AssistantView() {
       )}
 
       <section className="ask-section">
+        <div className="context-row">
+          <span className="context-indicator">
+            Context: {contextCount} recent {contextCount === 1 ? "turn" : "turns"}
+          </span>
+          <button
+            className="clear-context-button"
+            onClick={() => contextGameId !== null && onContextCleared(contextGameId)}
+            disabled={contextCount === 0}
+            title="Clear the recent conversation context for this game"
+          >
+            Clear context
+          </button>
+        </div>
         <form
           className="ask-form"
           onSubmit={(event) => {

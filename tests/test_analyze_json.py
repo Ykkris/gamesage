@@ -31,7 +31,7 @@ class FakeProvider:
         self.error = error
         self.calls = []
 
-    def analyze(self, image_path, question, *, context=None, knowledge=None):
+    def analyze(self, image_path, question, *, context=None, knowledge=None, session_context=None):
         self.calls.append((image_path, question, context, knowledge))
         if self.error is not None:
             raise self.error
@@ -162,7 +162,7 @@ class TestCliAnalyze:
     def test_prints_json_and_exits_zero(self, capsys):
         code = main(
             ["analyze", "--image", "shot.png", "--question", "What?"],
-            run_analyze_command=lambda image, question, game_id: {
+            run_analyze_command=lambda image, question, game_id, session_context: {
                 "ok": True,
                 "answer": "a",
                 "provider": "zai",
@@ -178,7 +178,7 @@ class TestCliAnalyze:
     def test_failure_envelope_exits_one(self, capsys):
         code = main(
             ["analyze", "--image", "shot.png", "--question", "What?"],
-            run_analyze_command=lambda image, question, game_id: {
+            run_analyze_command=lambda image, question, game_id, session_context: {
                 "ok": False,
                 "error": {"code": "provider_not_configured", "message": "m"},
             },
@@ -190,7 +190,7 @@ class TestCliAnalyze:
     def test_passes_explicit_game_id_through(self, capsys):
         seen = {}
 
-        def fake_run(image, question, game_id):
+        def fake_run(image, question, game_id, session_context):
             seen["game_id"] = game_id
             return {"ok": True}
 
@@ -200,6 +200,39 @@ class TestCliAnalyze:
         )
 
         assert seen["game_id"] == "witcher3"
+
+    def test_reads_session_context_from_stdin_marker(self, capsys):
+        import io
+
+        turns = [{"game_id": "witcher3", "question": "q1", "answer": "a1"}]
+        seen = {}
+
+        def fake_run(image, question, game_id, session_context):
+            seen["session_context"] = session_context
+            return {"ok": True}
+
+        main(
+            ["analyze", "--image", "shot.png", "--question", "q", "--context", "-"],
+            run_analyze_command=fake_run,
+            stdin=io.StringIO(json.dumps(turns)),
+        )
+
+        assert seen["session_context"] == turns
+        assert json.loads(capsys.readouterr().out)["ok"] is True
+
+    def test_invalid_context_json_exits_one_without_payload(self, capsys):
+        import io
+
+        code = main(
+            ["analyze", "--image", "shot.png", "--question", "q", "--context", "-"],
+            run_analyze_command=lambda image, question, game_id, session_context: {
+                "ok": True
+            },
+            stdin=io.StringIO("not json"),
+        )
+
+        assert code == 1
+        assert capsys.readouterr().out.strip() == ""
 
 
 class TestLoadEnvFile:

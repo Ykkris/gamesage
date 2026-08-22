@@ -58,9 +58,10 @@ def main(
     argv: list[str] | None = None,
     *,
     run_capture_command: Callable[[Path | None, str | None], dict] = run_capture,
-    run_analyze_command: Callable[[Path, str, str | None], dict] = run_analysis,
+    run_analyze_command: Callable[[Path, str, str | None, object], dict] = run_analysis,
     run_games_command: Callable[[], dict] = run_games,
     run_community_command: Callable[[], dict] = run_community_content,
+    stdin=None,
 ) -> int:
     load_env_file(Path(".env"))
 
@@ -104,6 +105,12 @@ def main(
         default=None,
         help="game id (default: the currently supported game)",
     )
+    analyze.add_argument(
+        "--context",
+        default=None,
+        metavar="STDIN_MARKER",
+        help="pass '-' to read recent session context as JSON from stdin",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "games":
@@ -113,7 +120,15 @@ def main(
     elif args.command == "capture":
         payload = run_capture_command(args.screenshots_dir, args.game)
     else:
-        payload = run_analyze_command(args.image, args.question, args.game)
+        session_context = None
+        if args.context == "-":
+            source = sys.stdin if stdin is None else stdin
+            try:
+                session_context = json.load(source)
+            except json.JSONDecodeError as error:
+                print(f"invalid session context JSON: {error}", file=sys.stderr)
+                return 1
+        payload = run_analyze_command(args.image, args.question, args.game, session_context)
     print(json.dumps(payload))
     return 0 if payload["ok"] else 1
 

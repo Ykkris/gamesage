@@ -27,6 +27,7 @@ from companion.games.registry import UnknownGameError, get_game
 from companion.knowledge.models import KnowledgeChunk
 from companion.knowledge.packs.registry import KnowledgePackRegistry
 from companion.knowledge.retrieval import RetrievalHit, has_any_term, retrieve, tokenize
+from companion.memory.session import SessionContextError, prepare_session_context
 from companion.vision.errors import (
     InvalidImageError,
     ProviderAuthError,
@@ -124,6 +125,7 @@ def run_analysis(
     image_path: Path,
     question: str,
     game_id: str | None = None,
+    session_context: object = None,
     *,
     provider_factory: ProviderFactory = create_provider,
     knowledge_retriever: KnowledgeRetriever | None = None,
@@ -132,7 +134,11 @@ def run_analysis(
 
     ``game_id`` selects the adapter (default game when omitted); its
     ``display_name`` becomes the vision context and its corpus backs the
-    default knowledge retriever.
+    default knowledge retriever. ``session_context`` optionally supplies
+    raw (JSON-style) recent interactions; they are validated, filtered to
+    the screenshot owner's game, bounded, and formatted by trusted session
+    code — malformed context fails with a structured ``invalid_context``
+    error.
 
     Returns ``{"ok": True, "answer", "provider", "model"}`` plus
     ``"sources"`` when retrieved knowledge was used, or
@@ -149,9 +155,19 @@ def run_analysis(
         game = get_game(game_id)
         if knowledge_retriever is None:
             knowledge_retriever = build_knowledge_retriever(game.id)
+        try:
+            context_block = prepare_session_context(session_context, game.id)
+        except SessionContextError as error:
+            return {
+                "ok": False,
+                "error": {"code": "invalid_context", "message": str(error)},
+            }
         provider = provider_factory()
         visual_context = provider.analyze(
-            image_path, CONTEXT_EXTRACTION_QUESTION, context=game.display_name
+            image_path,
+            CONTEXT_EXTRACTION_QUESTION,
+            context=game.display_name,
+            session_context=context_block,
         ).answer
         retrieved: Sequence[RetrievalHit] = knowledge_retriever(
             build_retrieval_query(question, visual_context)
@@ -165,7 +181,11 @@ def run_analysis(
             retrieved = [hit for hit in retrieved if has_any_term(hit.chunk, question_terms)]
         knowledge = format_knowledge_passages(retrieved) or None
         result: AnalysisResult = provider.analyze(
-            image_path, question, context=game.display_name, knowledge=knowledge
+            image_path,
+            question,
+            context=game.display_name,
+            knowledge=knowledge,
+            session_context=context_block,
         )
     except UnknownGameError as error:
         return {

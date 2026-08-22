@@ -138,12 +138,18 @@ class TestCaptureThroughAdapter:
         assert payload["game_id"] == "witcher3"
 
     def test_run_capture_default_detection_uses_adapter_rules(self, tmp_path, monkeypatch):
-        # No injected detect: the adapter's real detection runs; with the game
-        # window absent this must produce the standard not-running envelope.
+        # No injected detect: the adapter's real detection runs. Pin the
+        # default enumerators so the result is hermetic regardless of
+        # whether a real game happens to be running on this machine.
+        monkeypatch.setattr(
+            "companion.capture.window_detection._default_enumerators",
+            lambda: (lambda: [], lambda: []),
+        )
+
         payload = run_capture(tmp_path)
 
         assert payload["ok"] is False
-        assert payload["error"]["code"] in ("game_not_running", "no_visible_window")
+        assert payload["error"]["code"] == "game_not_running"
 
 
 class TestAnalysisReceivesGameMetadata:
@@ -155,7 +161,7 @@ class TestAnalysisReceivesGameMetadata:
         class RecordingProvider:
             id = "fake"
 
-            def analyze(self, image_path, question, *, context=None, knowledge=None):
+            def analyze(self, image_path, question, *, context=None, knowledge=None, session_context=None):
                 contexts.append(context)
                 return AnalysisResult("scene", "fake", "m")
 
