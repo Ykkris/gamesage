@@ -48,9 +48,15 @@ class TestAdapter:
         assert isinstance(BALDURS_GATE_3_GAME, GameAdapter)
         assert BaldursGate3Game().id == "baldurs_gate_3"
 
-    def test_no_knowledge_packs_installed_for_bg3(self):
-        """BG3 has no installed packs: empty knowledge, vision-only answers."""
+    def test_no_knowledge_packs_installed_for_bg3(self, tmp_path, monkeypatch):
+        """BG3 with no installed packs: empty knowledge, vision-only answers."""
         from companion.knowledge.packs.registry import KnowledgePackRegistry
+
+        # Hermetic: pin roots to empty directories so packs installed on
+        # the developer's machine (e.g. a real community BG3 pack) don't
+        # leak into the assertion.
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "absent-localappdata"))
+        monkeypatch.setenv("GAMESAGE_KNOWLEDGE_PACKS", str(tmp_path / "empty-packs"))
 
         assert KnowledgePackRegistry().chunks_for_game("baldurs_gate_3") == ()
 

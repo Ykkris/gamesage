@@ -189,15 +189,17 @@ function App() {
         </button>
       </nav>
 
-      {view === "community" ? (
-        <CommunityContent onClosed={() => setView("assistant")} />
-      ) : (
+      {/* AssistantView stays mounted; only its visibility changes so the
+          workspace (screenshot, owner game_id, draft, answer, Sources)
+          survives tab switches for the whole application runtime. */}
+      <div hidden={view !== "assistant"}>
         <AssistantView
           sessionTurns={sessionTurns}
           onTurnRecorded={recordSessionTurn}
           onContextCleared={clearSessionContext}
         />
-      )}
+      </div>
+      {view === "community" && <CommunityContent onClosed={() => setView("assistant")} />}
     </main>
   );
 }
@@ -303,11 +305,21 @@ function AssistantView({
     void requestGames().then(setGames);
   }, []);
 
-  // A new capture invalidates the previous question and answer.
+  // A new capture invalidates the previous answer and Sources, but the
+  // question draft is intentionally preserved so it can be reused or
+  // edited for the new screenshot.
   useEffect(() => {
-    setQuestion("");
     setAskState({ status: "idle" });
   }, [currentImage, capturedGameId]);
+
+  // Clear Screenshot: resets the visual workspace (capture, owner game_id,
+  // metadata, answer, provider/model, Sources, capture/analysis errors).
+  // Deliberately NOT cleared: the question draft, Session Context, and
+  // the game selected in the selector.
+  function handleClearScreenshot() {
+    setState({ status: "idle" });
+    setAskState({ status: "idle" });
+  }
 
   function selectGame(id: string) {
     if (games.status === "ready") {
@@ -363,6 +375,11 @@ function AssistantView({
 
       {state.status === "success" && (
         <section className="capture-result">
+          <div className="capture-toolbar">
+            <button className="clear-screenshot-button" onClick={handleClearScreenshot}>
+              Clear Screenshot
+            </button>
+          </div>
           <img
             className="screenshot"
             src={convertFileSrc(state.result.screenshot_path)}

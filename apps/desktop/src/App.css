@@ -63,6 +63,18 @@ body {
   margin-top: 1.5rem;
 }
 
+.capture-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.4rem;
+}
+
+.clear-screenshot-button {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.6rem;
+  cursor: pointer;
+}
+
 .screenshot {
   max-width: 100%;
   border: 1px solid rgba(128, 128, 128, 0.4);
